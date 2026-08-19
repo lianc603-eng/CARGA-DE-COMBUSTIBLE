@@ -1,39 +1,38 @@
 import streamlit as st
 import pandas as pd
-import openpyxl
 from datetime import date
-import io
+import requests
 import json
-import os
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 PRESUPUESTO_OBJETIVO = 3800.00
-ARCHIVO_PLANTILLA = "FORMATO.xlsx"
-DB_FILE = "registro_semanal.json"
 
-# Catálogo maestro mapeado exactamente a las filas de FORMATO.xlsx (filas 12 a 26)
-CATALOGO_OFICIAL = [
-    {"row": 12, "Solicita": "COB CHAVEZ NARCISO DEL JESUS", "Encargado": "COB CHAVEZ NARCISO DEL JESUS", "Vehículo": "MOTO SUSUKI", "Placa": "85GWU7", "Importe": 200.00},
-    {"row": 13, "Solicita": "PEREZ MAZIN CARLOS EDUARDO", "Encargado": "PEREZ MAZIN CARLOS EDUARDO", "Vehículo": "MOTO SUSUKI", "Placa": "86GWU7", "Importe": 200.00},
-    {"row": 14, "Solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "Encargado": "DE LA CRUZ PEREZ WILLIAN ARLEY", "Vehículo": "MOTO SUSUKI", "Placa": "86GWU8", "Importe": 200.00},
-    {"row": 15, "Solicita": "JESUS COB", "Encargado": "JESUS COB", "Vehículo": "MOTO SUSUKI", "Placa": "87GWU8", "Importe": 0.00},
-    {"row": 16, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO HONDA", "Placa": "88GWU7", "Importe": 0.00},
-    {"row": 17, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO SUSUKI", "Placa": "88GWU8", "Importe": 0.00},
-    {"row": 18, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO SUSUKI", "Placa": "89GWU7", "Importe": 0.00},
-    {"row": 19, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO SUSUKI", "Placa": "89GWU8", "Importe": 0.00},
-    {"row": 20, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO DINAMO", "Placa": "90GWU7", "Importe": 0.00},
-    {"row": 21, "Solicita": "NOEL CHAN", "Encargado": "", "Vehículo": "MOTO HONDA", "Placa": "90GWU8", "Importe": 0.00},
-    {"row": 22, "Solicita": "LIAN", "Encargado": "LIAN", "Vehículo": "MOTO SUSUKI", "Placa": "91GWU7", "Importe": 150.00},
-    {"row": 23, "Solicita": "RENAN/HELDER", "Encargado": "RENAN CETINA", "Vehículo": "AUTOMOVIL JETTA", "Placa": "DFT565C", "Importe": 500.00},
-    {"row": 24, "Solicita": "QUEVEDO", "Encargado": "", "Vehículo": "CAMIONETA RAM 701", "Placa": "CN2633B", "Importe": 1000.00},
-    {"row": 25, "Solicita": "QUEVEDO", "Encargado": "", "Vehículo": "CAMIONETA NISSAN", "Placa": "CN2632B", "Importe": 0.00},
-    {"row": 26, "Solicita": "QUEVEDO", "Encargado": "OMAR OROPEZA", "Vehículo": "MOTOSIERRA 310", "Placa": "00611-23-MOT-49234", "Importe": 0.00},
-]
+# URL de conexión con Google Apps Script
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Diccionario de credenciales (Usuario : Contraseña)
+# Mapeo oficial de vehículos y solicitantes por fila (filas 12 a 26 del formato)
+MAPEO_SOLICITANTES = {
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8"},
+    15: {"solicita": "JESUS COB", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7"},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8"},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7"},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8"},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7"},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8"},
+    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7"},
+    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C"},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B"},
+    25: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA NISSAN", "placa": "CN2632B"},
+    26: {"solicita": "QUEVEDO", "vehiculo": "MOTOSIERRA 310", "placa": "00611-23-MOT-49234"},
+}
+
+# Credenciales de acceso por usuario
 USUARIOS_PASSWORD = {
-    "LIAN": "admin123",                      # Administrador General
+    "LIAN": "admin123",
     "NOEL CHAN": "inspeccion2026",
     "QUEVEDO": "ambiental2026",
     "RENAN/HELDER": "urbano2026",
@@ -43,195 +42,168 @@ USUARIOS_PASSWORD = {
     "JESUS COB": "notif123"
 }
 
-# Funciones de persistencia de datos compartidos
-def cargar_datos():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return pd.DataFrame(json.load(f))
-        except Exception:
-            return pd.DataFrame(CATALOGO_OFICIAL)
-    return pd.DataFrame(CATALOGO_OFICIAL)
+# Funciones de comunicación con Google Sheets
+def obtener_datos_sheets():
+    try:
+        res = requests.get(WEBHOOK_URL, timeout=15)
+        if res.status_code == 200:
+            datos_raw = res.json().get("data", [])
+            for item in datos_raw:
+                r = int(item["row"])
+                if r in MAPEO_SOLICITANTES:
+                    item["Solicita"] = MAPEO_SOLICITANTES[r]["solicita"]
+                    item["Vehículo"] = MAPEO_SOLICITANTES[r]["vehiculo"]
+                    item["Placa"] = MAPEO_SOLICITANTES[r]["placa"]
+                    item["Encargado"] = str(item.get("encargado", "")).strip()
+                    try:
+                        item["Importe"] = float(item.get("importe", 0.0))
+                    except (ValueError, TypeError):
+                        item["Importe"] = 0.0
+            return pd.DataFrame(datos_raw)
+    except Exception as err:
+        st.error(f"Error al conectar con Google Sheets: {err}")
+    return pd.DataFrame()
 
-def guardar_datos(df):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(df.to_dict(orient="records"), f, indent=4, ensure_ascii=False)
+def guardar_en_sheets(registros, f_elab=None, f_prog=None):
+    payload = {"registros": []}
+    if f_elab:
+        payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
+    if f_prog:
+        payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
+        
+    for _, fila in registros.iterrows():
+        payload["registros"].append({
+            "row": int(fila["row"]),
+            "encargado": str(fila["Encargado"]).strip() if pd.notna(fila["Encargado"]) else "",
+            "importe": float(fila["Importe"]) if pd.notna(fila["Importe"]) else 0.0
+        })
+        
+    try:
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=15)
+        return res.status_code == 200
+    except Exception as e:
+        st.error(f"Error al guardar los datos: {e}")
+        return False
 
-# Inicializar sesión
+# ==========================================
+# 1. GESTIÓN DE SESIÓN Y LOGIN
+# ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 
-# ==========================================
-# 1. PANTALLA DE LOGIN
-# ==========================================
 if st.session_state.usuario_logueado is None:
     st.title("⛽ Sistema de Solicitud de Combustible")
-    st.caption("Dirección de Desarrollo Urbano y Medio Ambiente")
+    st.caption("H. Ayuntamiento de Campeche — Dirección de Desarrollo Urbano y Medio Ambiente")
     
-    col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
-    with col_l2:
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
         with st.form("form_login"):
-            st.subheader("🔐 Inicio de Sesión")
-            usuario = st.selectbox("Selecciona tu Usuario / Solicitante", list(USUARIOS_PASSWORD.keys()))
-            password = st.text_input("Contraseña", type="password")
-            btn_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
-            
-            if btn_login:
-                if password == USUARIOS_PASSWORD.get(usuario):
-                    st.session_state.usuario_logueado = usuario
+            st.subheader("🔐 Iniciar Sesión")
+            usr = st.selectbox("Selecciona tu Usuario / Solicitante", list(USUARIOS_PASSWORD.keys()))
+            pwd = st.text_input("Contraseña", type="password")
+            if st.form_submit_button("Ingresar al Sistema", use_container_width=True):
+                if pwd == USUARIOS_PASSWORD.get(usr):
+                    st.session_state.usuario_logueado = usr
                     st.rerun()
                 else:
-                    st.error("Contraseña incorrecta. Intenta nuevamente.")
+                    st.error("Contraseña incorrecta.")
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y SESIÓN ACTIVA
+# 2. ENCABEZADO Y BARRA SUPERIOR
 # ==========================================
-usuario_actual = st.session_state.usuario_logueado
-es_admin = (usuario_actual == "LIAN")
+usuario = st.session_state.usuario_logueado
+es_admin = (usuario == "LIAN")
 
-col_head1, col_head2 = st.columns([4, 1])
-with col_head1:
+c1, c2 = st.columns([4, 1])
+with c1:
     st.title("⛽ Solicitud Semanal de Combustible")
-    rol_label = "👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_actual}**"
-    st.markdown(rol_label)
-with col_head2:
+    st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario}**")
+with c2:
     st.write("")
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.usuario_logueado = None
         st.rerun()
 
-df_global = cargar_datos()
+# Cargar los datos en tiempo real desde Google Sheets
+df_actual = obtener_datos_sheets()
+
+if df_actual.empty:
+    st.warning("Conectando con la base de datos en Google Sheets...")
+    st.stop()
 
 # ==========================================
 # 3. VISTA SOLICITANTE
 # ==========================================
 if not es_admin:
-    st.info("👋 Asigna el **Nombre del Encargado** que conducirá la unidad esta semana e ingresa el **Importe ($)** correspondiente.")
+    st.info("👋 Asigna el **Nombre del Encargado** que conducirá la unidad esta semana e ingresa el **Importe ($)** correspondiente:")
     
-    # Filtrar solo los vehículos pertenecientes al usuario conectado
-    filas_usuario = df_global[df_global["Solicita"] == usuario_actual].copy()
+    df_solicitante = df_actual[df_actual["Solicita"] == usuario].copy()
     
-    df_user_editado = st.data_editor(
-        filas_usuario,
+    df_edit = st.data_editor(
+        df_solicitante,
         use_container_width=True,
-        disabled=["row", "Solicita", "Vehículo", "Placa"],
+        disabled=["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"],
         column_config={
-            "Encargado": st.column_config.TextColumn(
-                "Nombre del Encargado / Operador",
-                help="Nombre de quien conducirá y cargará la unidad",
-                required=True
-            ),
-            "Importe": st.column_config.NumberColumn(
-                "Importe ($)",
-                min_value=0.0,
-                step=50.0,
-                format="$%.2f"
-            ),
-            "row": None,
-            "Solicita": None
+            "Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
+            "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
+            "row": None, "encargado": None, "importe": None, "Solicita": None
         },
-        hide_index=True,
-        key="editor_solicitante"
+        hide_index=True
     )
     
-    subtotal = df_user_editado["Importe"].sum()
-    st.metric("Total Solicitado por tu Área", f"${subtotal:,.2f} MXN")
+    st.metric("Total Solicitado por tu Área", f"${df_edit['Importe'].sum():,.2f} MXN")
     
-    if st.button("💾 Guardar Mi Solicitud", type="primary", use_container_width=True):
-        # Actualizar los registros modificados en la base global
-        for _, row_edit in df_user_editado.iterrows():
-            idx = df_global[df_global["row"] == row_edit["row"]].index
-            df_global.loc[idx, "Encargado"] = row_edit["Encargado"]
-            df_global.loc[idx, "Importe"] = row_edit["Importe"]
-            
-        guardar_datos(df_global)
-        st.success("✅ Tu solicitud semanal ha sido registrada y enviada a Administración.")
+    if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
+        with st.spinner("Guardando en Google Sheets..."):
+            if guardar_en_sheets(df_edit):
+                st.success("✅ ¡Datos guardados correctamente en la hoja de cálculo oficial!")
+            else:
+                st.error("❌ No se pudo guardar la información.")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación y Aprobación Administrativa")
+    st.subheader("⚙️ Consolidación General y Control Presupuestal")
     
-    # Selector de fechas oficiales
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        fecha_elaboro = st.date_input("Fecha de Elaboración (Oficio)", value=date.today())
+        f_elab = st.date_input("Fecha de Elaboración (Oficio)", value=date.today())
     with col_f2:
-        fecha_programacion = st.date_input("Programación para el día", value=date.today())
+        f_prog = st.date_input("Programación para el día", value=date.today())
         
-    st.markdown("##### 📋 Tabla Consolidada General")
-    st.caption("Puedes corregir operadores o importes directamente si es necesario:")
-    
-    df_admin_editado = st.data_editor(
-        df_global,
+    df_admin_edit = st.data_editor(
+        df_actual,
         use_container_width=True,
-        disabled=["row", "Vehículo", "Placa"],
+        disabled=["row", "Vehículo", "Placa", "encargado", "importe"],
         column_config={
             "Solicita": st.column_config.TextColumn("Solicitante", disabled=True),
             "Encargado": st.column_config.TextColumn("Operador / Encargado"),
             "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-            "row": None
+            "row": None, "encargado": None, "importe": None
         },
-        hide_index=True,
-        key="editor_admin"
+        hide_index=True
     )
     
-    # Cálculos y semáforo de presupuesto semanal
-    total_asignado = df_admin_editado["Importe"].sum()
-    diferencia = PRESUPUESTO_OBJETIVO - total_asignado
+    total = df_admin_edit["Importe"].sum()
+    saldo = PRESUPUESTO_OBJETIVO - total
     
-    col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("Presupuesto Semanal", f"${PRESUPUESTO_OBJETIVO:,.2f}")
-    col_m2.metric("Total Solicitado Global", f"${total_asignado:,.2f}", delta=f"{total_asignado - PRESUPUESTO_OBJETIVO:,.2f}", delta_color="inverse")
-    col_m3.metric("Saldo Disponible", f"${diferencia:,.2f}", delta_color="normal" if diferencia >= 0 else "off")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Presupuesto Semanal", f"${PRESUPUESTO_OBJETIVO:,.2f}")
+    m2.metric("Total Distribuido", f"${total:,.2f}", delta=f"{total - PRESUPUESTO_OBJETIVO:,.2f}", delta_color="inverse")
+    m3.metric("Saldo Disponible", f"${saldo:,.2f}", delta_color="normal" if saldo >= 0 else "off")
     
-    # Validaciones visuales
-    if total_asignado > PRESUPUESTO_OBJETIVO:
-        st.error(f"❌ El monto total excede el presupuesto autorizado por **${abs(diferencia):,.2f} MXN**.")
-    elif total_asignado == PRESUPUESTO_OBJETIVO:
-        st.success("✅ Presupuesto distribuido exactamente al 100% ($3,800.00 MXN).")
+    if total > PRESUPUESTO_OBJETIVO:
+        st.error(f"❌ Exceso de presupuesto por **${abs(saldo):,.2f} MXN**.")
+    elif total == PRESUPUESTO_OBJETIVO:
+        st.success("✅ Presupuesto distribuido al 100% ($3,800.00 MXN).")
     else:
-        st.warning(f"ℹ️ Aún tienes un saldo disponible de **${diferencia:,.2f} MXN** sin asignar.")
-
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("💾 Guardar Cambios Administrativos", use_container_width=True):
-            guardar_datos(df_admin_editado)
-            st.success("✅ Cambios guardados correctamente.")
-
-    # Generación y descarga del Excel oficial
-    def generar_excel_oficial(df_datos, f_elab, f_prog):
-        wb = openpyxl.load_workbook(ARCHIVO_PLANTILLA)
-        ws = wb.active
+        st.warning(f"ℹ️ Saldo por asignar: **${saldo:,.2f} MXN**.")
         
-        # Inyectar fechas en las celdas del encabezado
-        ws["I8"] = f_elab.strftime("%d/%m/%Y")
-        ws["I9"] = f_prog.strftime("%d/%m/%Y")
-        
-        # Inyectar encargados e importes
-        for _, fila in df_datos.iterrows():
-            r = int(fila["row"])
-            encargado_val = str(fila["Encargado"]).strip() if pd.notna(fila["Encargado"]) and str(fila["Encargado"]).strip() != "" else None
-            importe_val = float(fila["Importe"]) if pd.notna(fila["Importe"]) and float(fila["Importe"]) > 0 else None
-            
-            ws.cell(row=r, column=2, value=encargado_val)
-            ws.cell(row=r, column=7, value=importe_val)
-            
-        buffer = io.BytesIO()
-        wb.save(buffer)
-        return buffer.getvalue()
-
-    with col_btn2:
-        try:
-            archivo_generado = generar_excel_oficial(df_admin_editado, fecha_elaboro, fecha_programacion)
-            st.download_button(
-                label="📥 Descargar Formato Oficial (.xlsx)",
-                data=archivo_generado,
-                file_name=f"SOLICITUD_COMBUSTIBLE_{fecha_programacion.strftime('%d%m%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        except FileNotFoundError:
-            st.error("⚠️ No se encontró el archivo `FORMATO.xlsx` en la carpeta.")
+    if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
+        with st.spinner("Actualizando Google Sheets..."):
+            if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
+                st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
+            else:
+                st.error("❌ Error al sincronizar con Google Sheets.")
