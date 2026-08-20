@@ -20,11 +20,9 @@ PRESUPUESTO_GLOBAL = 3800.00
 HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
-# Modo 24/7 activo para que los solicitantes puedan guardar en cualquier momento
 HABILITAR_CAPTURA_24_7 = True  
 
 CONFIG_FILE = "config_sistema.json"
-AVISOS_FILE = "avisos_sistema.json"
 HISTORICO_FILE = "historico_cargas.json"
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
@@ -85,22 +83,6 @@ def guardar_config(cfg):
     except Exception:
         pass
 
-def leer_avisos():
-    if os.path.exists(AVISOS_FILE):
-        try:
-            with open(AVISOS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
-
-def guardar_avisos(avisos):
-    try:
-        with open(AVISOS_FILE, "w") as f:
-            json.dump(avisos, f)
-    except Exception:
-        pass
-
 def leer_historico():
     if os.path.exists(HISTORICO_FILE):
         try:
@@ -117,7 +99,7 @@ def guardar_historico(hist):
     except Exception:
         pass
 
-# --- GESTIÓN DE DATOS CON GOOGLE SHEETS ---
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
     if "df_datos" in st.session_state and not forzar:
         return st.session_state.df_datos
@@ -442,20 +424,6 @@ df_actual = obtener_datos_sheets()
 # 3. VISTA SOLICITANTE (MÓVIL)
 # ==========================================
 if not es_admin:
-    lista_avisos = leer_avisos()
-    mis_avisos = [a for a in lista_avisos if a["destinatario"] in ["TODOS", usuario_efectivo]]
-    
-    if mis_avisos:
-        for av in mis_avisos:
-            tipo = av.get("tipo", "Informativo")
-            texto_aviso = f"**{av['fecha']} - {av['destinatario']}:** {av['mensaje']}"
-            if tipo == "Urgente":
-                st.error(f"🚨 {texto_aviso}")
-            elif tipo == "Importante":
-                st.warning(f"⚠️ {texto_aviso}")
-            else:
-                st.info(f"📢 {texto_aviso}")
-                
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
@@ -540,13 +508,12 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
+    tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_historico, tab_mantenimiento = st.tabs([
         "📊 Monitoreo de Saldos por Área",
         "📄 Solicitud Final (Solo Vehículos que Cargan)",
         "🛵 Mi Carga (LIAN)",
         "✅ Auditoría y Carga Real",
         "📁 Histórico de Cargas",
-        "📢 Centro de Avisos",
         "🛠️ Modo Pruebas"
     ])
 
@@ -730,23 +697,6 @@ else:
                     historial = leer_historico()
                     folio = f"CARGA-{f_prog.strftime('%Y%m%d')}-{len(historial)+1}"
                     
-                    detalle_texto_lista = []
-                    for _, r_c in cargas_finales.iterrows():
-                        detalle_texto_lista.append(f"{r_c['Operador_Sol']} ({r_c['Vehículo']} ${r_c['Importe_Real']:,.2f})")
-                    detalle_texto = "; ".join(detalle_texto_lista)
-                    
-                    registro_cierre = {
-                        "folio": folio,
-                        "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
-                        "fecha_prog": f_prog.strftime("%d/%m/%Y"),
-                        "fecha_registro": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
-                        "total_solicitado": float(total_global_sol),
-                        "total_ejercido": float(total_global_real),
-                        "ahorro": float(saldo_global_disponible),
-                        "total_vehiculos": int(len(cargas_finales)),
-                        "detalle_texto": detalle_texto
-                    }
-                    
                     registro_cierre_local = {
                         "folio": folio,
                         "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
@@ -814,57 +764,7 @@ else:
                     column_config={"Importe_Real": st.column_config.NumberColumn("Importe Real ($)", format="$%.2f")}
                 )
 
-    # 6. CENTRO DE AVISOS
-    with tab_avisos:
-        st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
-        
-        with st.form("form_nuevo_aviso"):
-            c_dest, c_tipo = st.columns([2, 1])
-            with c_dest:
-                destinatarios_opciones = ["TODOS"] + [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
-                destinatario_sel = st.selectbox("Dirigido a:", destinatarios_opciones)
-            with c_tipo:
-                tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
-                
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
-            
-            if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
-                if texto_aviso_nuevo.strip():
-                    avisos_act = leer_avisos()
-                    nuevo_obj = {
-                        "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-                        "destinatario": destinatario_sel,
-                        "tipo": tipo_aviso,
-                        "mensaje": texto_aviso_nuevo.strip(),
-                        "fecha": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p")
-                    }
-                    avisos_act.insert(0, nuevo_obj)
-                    guardar_avisos(avisos_act)
-                    st.success("✅ Aviso publicado exitosamente.")
-                    st.rerun()
-                else:
-                    st.warning("Escribe un mensaje antes de publicar.")
-                    
-        st.divider()
-        st.markdown("##### 📋 Avisos Activos en el Sistema")
-        avisos_existentes = leer_avisos()
-        
-        if not avisos_existentes:
-            st.info("No hay avisos ni mensajes activos actualmente.")
-        else:
-            for idx, av in enumerate(avisos_existentes):
-                with st.container(border=True):
-                    col_info, col_del = st.columns([5, 1])
-                    with col_info:
-                        st.markdown(f"**Para:** `{av['destinatario']}` &nbsp;|&nbsp; Prioridad: **{av['tipo']}** &nbsp;|&nbsp; *{av['fecha']}*")
-                        st.write(av["mensaje"])
-                    with col_del:
-                        if st.button("🗑️ Borrar", key=f"del_aviso_{av['id']}"):
-                            avisos_existentes.pop(idx)
-                            guardar_avisos(avisos_existentes)
-                            st.rerun()
-
-    # 7. MODO PRUEBAS Y MANTENIMIENTO
+    # 6. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
@@ -879,11 +779,10 @@ else:
                 df_limpio["Operador_Real"] = ""
                 df_limpio["Importe_Real"] = 0.0
                 
-                with st.spinner("Restableciendo registros en Google Sheets..."):
-                    enviar_datos_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    enviar_datos_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Todas las unidades restablecidas a $0.00.")
-                    st.rerun()
+                enviar_datos_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                enviar_datos_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ Todas las unidades restablecidas a $0.00.")
+                st.rerun()
 
         with st.container(border=True):
             st.subheader("⏰ Estado de Captura de Horario")
