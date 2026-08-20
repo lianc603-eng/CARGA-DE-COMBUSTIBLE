@@ -7,6 +7,8 @@ import json
 import io
 import os
 import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 from fpdf import FPDF
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
@@ -16,6 +18,7 @@ HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 CONFIG_FILE = "config_sistema.json"
 AVISOS_FILE = "avisos_sistema.json"
+HISTORICO_FILE = "historico_cargas.json"
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
@@ -58,7 +61,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# --- PERSISTENCIA DE CONFIGURACIÓN Y AVISOS ---
+# --- PERSISTENCIA LOCAL ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -84,6 +87,19 @@ def leer_avisos():
 def guardar_avisos(avisos):
     with open(AVISOS_FILE, "w") as f:
         json.dump(avisos, f)
+
+def leer_historico():
+    if os.path.exists(HISTORICO_FILE):
+        try:
+            with open(HISTORICO_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+def guardar_historico(hist):
+    with open(HISTORICO_FILE, "w") as f:
+        json.dump(hist, f)
 
 config_sistema = leer_config()
 
@@ -132,26 +148,65 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# GENERADORES DE ARCHIVOS OFICIALES
+# GENERADOR EXCEL CON FÓRMULAS NATIVAS
 # ==========================================
-def generar_excel_filtrado(df_cargas, f_elab, f_prog):
+def generar_excel_magico(df_solicitado, df_real, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Solicitud de Carga"
     
-    ws["B2"] = "H. AYUNTAMIENTO DE CAMPECHE"
-    ws["B4"] = "Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE"
-    ws["F6"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
-    ws["F7"] = f"Programación para el día: {f_prog.strftime('%d/%m/%Y')}"
+    # Estilos
+    fuente_titulo = Font(name="Calibri", size=13, bold=True, color="1F497D")
+    fuente_sub = Font(name="Calibri", size=10, bold=True)
+    fuente_header = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    fuente_bold = Font(name="Calibri", size=10, bold=True)
+    fuente_normal = Font(name="Calibri", size=10)
     
-    headers = ["NOMBRE DEL ENCARGADO", "VEHÍCULO", "PLACA", "OFICIAL/COMODATO", "IMPORTE", "COMBUSTIBLE", "ACTIVIDAD"]
-    ws.append([])
-    ws.append(headers)
+    fill_header_sol = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+    fill_header_real = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
+    fill_total = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid")
     
-    total = 0.0
-    for _, row in df_cargas.iterrows():
-        ws.append([
+    thin_border = Border(
+        left=Side(style='thin', color='CCCCCC'),
+        right=Side(style='thin', color='CCCCCC'),
+        top=Side(style='thin', color='CCCCCC'),
+        bottom=Side(style='thin', color='CCCCCC')
+    )
+
+    # ---------------------------------------------
+    # PESTAÑA 1: CARGA SOLICITADA
+    # ---------------------------------------------
+    ws1 = wb.active
+    ws1.title = "1. CARGA SOLICITADA"
+    ws1.views.sheetView[0].showGridLines = True
+    
+    ws1["A1"] = "H. AYUNTAMIENTO DE CAMPECHE"
+    ws1["A1"].font = fuente_titulo
+    ws1["A2"] = "DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE - SOLICITUD PREVENTIVA"
+    ws1["A2"].font = fuente_sub
+    
+    ws1["E3"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
+    ws1["E4"] = f"Programación: {f_prog.strftime('%d/%m/%Y')}"
+    ws1["E3"].font = fuente_sub
+    ws1["E4"].font = fuente_sub
+    
+    headers_sol = ["NO.", "SOLICITA", "NOMBRE DEL ENCARGADO", "VEHÍCULO", "PLACA", "RÉGIMEN", "IMPORTE SOLICITADO ($)", "TIPO", "ACTIVIDAD"]
+    ws1.append([])
+    ws1.append(headers_sol)
+    
+    header_row_idx = 6
+    for col_idx, h in enumerate(headers_sol, 1):
+        cell = ws1.cell(row=header_row_idx, column=col_idx)
+        cell.font = fuente_header
+        cell.fill = fill_header_sol
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        
+    df_sol_activas = df_solicitado[df_solicitado["Importe ($)"] > 0].reset_index(drop=True)
+    start_row = 7
+    for i, row in df_sol_activas.iterrows():
+        current_r = start_row + i
+        ws1.append([
+            i + 1,
+            row["Solicitante"],
             row["Operador / Encargado"],
             row["Vehículo"],
             row["Placa"],
@@ -160,9 +215,122 @@ def generar_excel_filtrado(df_cargas, f_elab, f_prog):
             "MAGNA",
             row["Actividad"]
         ])
-        total += float(row["Importe ($)"])
+        for c in range(1, 10):
+            cell = ws1.cell(row=current_r, column=c)
+            cell.font = fuente_normal
+            cell.border = thin_border
+            if c == 7:
+                cell.number_format = '$#,##0.00'
+                cell.alignment = Alignment(horizontal="right")
+            elif c in [1, 5, 6, 8]:
+                cell.alignment = Alignment(horizontal="center")
+                
+    end_row = start_row + len(df_sol_activas) - 1
+    if len(df_sol_activas) > 0:
+        total_row_sol = end_row + 1
+        ws1.cell(row=total_row_sol, column=6, value="TOTAL AUTORIZADO:").font = fuente_bold
+        total_cell = ws1.cell(row=total_row_sol, column=7, value=f"=SUM(G{start_row}:G{end_row})")
+        total_cell.font = fuente_bold
+        total_cell.number_format = '$#,##0.00'
+        total_cell.fill = fill_total
+        ws1.cell(row=total_row_sol, column=6).alignment = Alignment(horizontal="right")
+
+    # ---------------------------------------------
+    # PESTAÑA 2: CARGA REAL Y COMPARATIVA CON FÓRMULAS
+    # ---------------------------------------------
+    ws2 = wb.create_sheet(title="2. CONCILIACION Y CARGA REAL")
+    ws2.views.sheetView[0].showGridLines = True
+    
+    ws2["A1"] = "H. AYUNTAMIENTO DE CAMPECHE"
+    ws2["A1"].font = fuente_titulo
+    ws2["A2"] = "AUDITORÍA Y COMPARATIVO DE EJECUCIÓN (SOLICITADO VS REAL)"
+    ws2["A2"].font = fuente_sub
+    
+    headers_real = [
+        "NO.", "ÁREA / SOLICITANTE", "VEHÍCULO", "PLACA", "OPERADOR", 
+        "SOLICITADO ($)", "CARGA REAL ($)", "DIFERENCIA / AHORRO ($)", "% EJERCIDO", "ESTATUS"
+    ]
+    ws2.append([])
+    ws2.append([])
+    ws2.append(headers_real)
+    
+    r_header_idx = 5
+    for col_idx, h in enumerate(headers_real, 1):
+        cell = ws2.cell(row=r_header_idx, column=col_idx)
+        cell.font = fuente_header
+        cell.fill = fill_header_real
+        cell.alignment = Alignment(horizontal="center", vertical="center")
         
-    ws.append(["", "", "", "TOTAL:", total, "", ""])
+    start_r2 = 6
+    for i, row in df_real.iterrows():
+        curr = start_r2 + i
+        solicitado_val = float(df_solicitado.loc[df_solicitado['row'] == row['row'], 'Importe ($)'].values[0])
+        real_val = float(row["Importe ($)"])
+        
+        # Inserción de fórmulas automatizadas en Excel
+        formula_dif = f"=F{curr}-G{curr}"
+        formula_pct = f"=IF(F{curr}>0, G{curr}/F{curr}, 0)"
+        formula_est = f'=IF(H{curr}=0, "CARGA COMPLETA", IF(H{curr}>0, "CON AHORRO/REMANENTE", "EXCEDIDO"))'
+        
+        ws2.append([
+            i + 1,
+            row["Solicitante"],
+            row["Vehículo"],
+            row["Placa"],
+            row["Operador / Encargado"],
+            solicitado_val,
+            real_val,
+            formula_dif,
+            formula_pct,
+            formula_est
+        ])
+        
+        for c in range(1, 11):
+            cell = ws2.cell(row=curr, column=c)
+            cell.font = fuente_normal
+            cell.border = thin_border
+            if c in [6, 7, 8]:
+                cell.number_format = '$#,##0.00'
+                cell.alignment = Alignment(horizontal="right")
+            elif c == 9:
+                cell.number_format = '0.0%'
+                cell.alignment = Alignment(horizontal="center")
+            elif c in [1, 4, 10]:
+                cell.alignment = Alignment(horizontal="center")
+                
+    end_r2 = start_r2 + len(df_real) - 1
+    total_r2 = end_r2 + 1
+    
+    ws2.cell(row=total_r2, column=5, value="TOTALES:").font = fuente_bold
+    ws2.cell(row=total_r2, column=5).alignment = Alignment(horizontal="right")
+    
+    cell_tot_sol = ws2.cell(row=total_r2, column=6, value=f"=SUM(F{start_r2}:F{end_r2})")
+    cell_tot_sol.font = fuente_bold
+    cell_tot_sol.number_format = '$#,##0.00'
+    cell_tot_sol.fill = fill_total
+    
+    cell_tot_real = ws2.cell(row=total_r2, column=7, value=f"=SUM(G{start_r2}:G{end_r2})")
+    cell_tot_real.font = fuente_bold
+    cell_tot_real.number_format = '$#,##0.00'
+    cell_tot_real.fill = fill_total
+    
+    cell_tot_dif = ws2.cell(row=total_r2, column=8, value=f"=F{total_r2}-G{total_r2}")
+    cell_tot_dif.font = fuente_bold
+    cell_tot_dif.number_format = '$#,##0.00'
+    cell_tot_dif.fill = fill_total
+    
+    cell_tot_pct = ws2.cell(row=total_r2, column=9, value=f"=IF(F{total_r2}>0, G{total_r2}/F{total_r2}, 0)")
+    cell_tot_pct.font = fuente_bold
+    cell_tot_pct.number_format = '0.0%'
+    cell_tot_pct.fill = fill_total
+    
+    # Autoajuste de anchos de columna
+    for sheet in [ws1, ws2]:
+        for col in sheet.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            sheet.column_dimensions[col_letter].width = max(max_len + 3, 12)
+            
     wb.save(output)
     return output.getvalue()
 
@@ -269,7 +437,7 @@ with c1:
         
     estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado"
     if desbloqueo_activo:
-        estado_horario += " (⚡ Desbloqueo temporal de Admin activo)"
+        estado_horario += " (⚡ Desbloqueo temporal activo)"
     st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
 
 with c2:
@@ -291,7 +459,7 @@ if df_actual.empty:
     st.stop()
 
 # ==========================================
-# 3. VISTA SOLICITANTE (TARJETAS MÓVILES + AVISOS)
+# 3. VISTA SOLICITANTE
 # ==========================================
 if not es_admin:
     lista_avisos = leer_avisos()
@@ -385,7 +553,7 @@ if not es_admin:
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación, Auditoría y Gestión")
+    st.subheader("⚙️ Panel de Consolidación, Auditoría y Automatización")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -393,63 +561,38 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_cargas_activas, tab_confirmacion, tab_avisos, tab_edicion, tab_mantenimiento = st.tabs([
-        "📊 Saldos por Área",
-        "📄 Solicitud Final", 
-        "✅ Auditoría Real",
+    tab_seccion1, tab_seccion2, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
+        "1️⃣ SECCIÓN: Carga Solicitada (Preventiva)", 
+        "2️⃣ SECCIÓN: Carga Real y Conciliación",
+        "📁 Histórico de Cargas",
         "📢 Centro de Avisos",
-        "✏️ Editor General",
         "🛠️ Modo Pruebas"
     ])
 
     df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
 
-    with tab_saldos:
-        filas_reporte = []
-        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
-            sub_df = df_actual[df_actual["Solicitante"] == sol]
-            solicitado = sub_df["Importe ($)"].sum()
-            disponible = p_base - solicitado
-            pct_usado = (solicitado / p_base * 100) if p_base > 0 else 0
-            
-            filas_reporte.append({
-                "Solicitante": sol,
-                "Presupuesto Base": p_base,
-                "Monto Solicitado": solicitado,
-                "Saldo Disponible": disponible,
-                "% Ejercido": f"{pct_usado:.1f}%",
-                "Unidades Activas": f"{len(sub_df[sub_df['Importe ($)'] > 0])} de {len(sub_df)}",
-                "Estatus": "✅ 100% Ejercido" if disponible == 0 else ("⚠️ Excedido" if disponible < 0 else "🟢 Con Saldo")
-            })
-            
-        total_global = df_actual["Importe ($)"].sum()
-        saldo_global = PRESUPUESTO_GLOBAL - total_global
+    # ==========================================
+    # SECCIÓN 1: CARGA SOLICITADA
+    # ==========================================
+    with tab_seccion1:
+        st.markdown("#### 📋 1. Solicitudes Semanales Capturadas por las Áreas")
         
-        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-        c_m1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c_m2.metric("Total Distribuido", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c_m3.metric("Saldo Disponible Global", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
-        c_m4.metric("Bolsa Comodín", "$200.00")
+        # Métricas de Saldo
+        total_global_sol = df_actual["Importe ($)"].sum()
+        saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
-        st.dataframe(
-            pd.DataFrame(filas_reporte),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
-                "Monto Solicitado": st.column_config.NumberColumn(format="$%.2f"),
-                "Saldo Disponible": st.column_config.NumberColumn(format="$%.2f"),
-            }
-        )
-
-    with tab_cargas_activas:
-        st.markdown("##### 🚗 Lista Oficial de Unidades a Cargar")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c2.metric("Total Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Disponible", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
+        c4.metric("Bolsa Comodín", "$200.00")
         
+        st.markdown("##### 🚗 Lista Oficial de Unidades que Van a Cargar")
         if df_solo_cargas.empty:
-            st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
+            st.warning("⚠️ No hay unidades con monto asignado actualmente.")
         else:
             st.dataframe(
-                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Actividad"]],
+                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Solicitante", "Actividad"]],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -458,20 +601,9 @@ else:
                 }
             )
             
-            st.markdown("---")
+            st.divider()
             col_d1, col_d2 = st.columns(2)
-            
             with col_d1:
-                excel_bytes = generar_excel_filtrado(df_solo_cargas, f_elab, f_prog)
-                st.download_button(
-                    label="📥 Descargar Reporte en Excel (.xlsx)",
-                    data=excel_bytes,
-                    file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-            with col_d2:
                 pdf_bytes = generar_pdf_oficial(df_solo_cargas, f_elab, f_prog)
                 st.download_button(
                     label="📄 Descargar Oficio Oficial en PDF",
@@ -480,18 +612,31 @@ else:
                     mime="application/pdf",
                     use_container_width=True
                 )
+            with col_d2:
+                # Generación de Excel con ambas pestañas automatizadas
+                excel_bytes = generar_excel_magico(df_actual, df_actual, f_elab, f_prog)
+                st.download_button(
+                    label="📥 Descargar Libro de Excel Automatizado (.xlsx)",
+                    data=excel_bytes,
+                    file_name=f"CONTROL_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
 
-    with tab_confirmacion:
-        st.markdown("##### ✅ Validación y Conciliación de Cargas Realizadas")
-        st.caption("Verifica si las unidades cargaron su monto completo. Ajusta si cargaron menos para recalcular saldos:")
+    # ==========================================
+    # SECCIÓN 2: CARGA REAL Y CONCILIACIÓN
+    # ==========================================
+    with tab_seccion2:
+        st.markdown("#### 🔍 2. Verificación de Cargas Reales y Conciliación")
+        st.caption("Ingresa lo que realmente cargó cada vehículo al presentar sus comprobantes para calcular diferencias y remanentes:")
         
-        df_auditoria = df_actual.copy()
-        df_audit_edit = st.data_editor(
-            df_auditoria,
+        # Tabla editable para ingresar montos reales
+        df_real_edit = st.data_editor(
+            df_actual.copy(),
             use_container_width=True,
             disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad"],
             column_config={
-                "Solicitante": st.column_config.TextColumn("Área / Solicitante"),
+                "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placas"),
                 "Operador / Encargado": st.column_config.TextColumn("Operador"),
@@ -499,26 +644,121 @@ else:
                 "row": None, "Actividad": None
             },
             hide_index=True,
-            key="editor_auditoria"
+            key="editor_seccion_real"
         )
         
-        total_real_ejercido = df_audit_edit["Importe ($)"].sum()
-        remanente_recuperado = PRESUPUESTO_GLOBAL - total_real_ejercido
+        total_real_ejercido = df_real_edit["Importe ($)"].sum()
+        remanente_total = PRESUPUESTO_GLOBAL - total_real_ejercido
+        ahorro_vs_solicitado = total_global_sol - total_real_ejercido
         
-        st.markdown("---")
-        ar1, ar2, ar3 = st.columns(3)
-        ar1.metric("Total Real Ejercido", f"${total_real_ejercido:,.2f}")
-        ar2.metric("Saldo No Ejercido / Recuperado", f"${remanente_recuperado:,.2f}", delta_color="normal")
-        ar3.metric("Unidades con Carga Real", f"{len(df_audit_edit[df_audit_edit['Importe ($)'] > 0])} unidades")
+        st.divider()
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Total Solicitado", f"${total_global_sol:,.2f}")
+        r2.metric("Total Realmente Ejercido", f"${total_real_ejercido:,.2f}")
+        r3.metric("Ahorro vs Solicitado", f"${ahorro_vs_solicitado:,.2f}", delta_color="normal")
+        r4.metric("Saldo Global Recuperado", f"${remanente_total:,.2f}", delta_color="normal")
         
-        if st.button("💾 Confirmar Cargas Reales y Guardar Registro Final", type="primary", use_container_width=True):
-            with st.spinner("Actualizando Google Sheets..."):
-                if guardar_en_sheets(df_audit_edit, f_elab, f_prog):
-                    st.success("✅ Cargas confirmadas y saldos recalculados correctamente.")
-                    st.rerun()
+        st.write("")
+        c_btn1, c_btn2, c_btn3 = st.columns(3)
+        
+        with c_btn1:
+            if st.button("💾 1. Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
+                with st.spinner("Actualizando Google Sheets..."):
+                    if guardar_en_sheets(df_real_edit, f_elab, f_prog):
+                        st.success("✅ Datos actualizados en Google Sheets.")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al actualizar.")
+        with c_btn2:
+            excel_magico_bytes = generar_excel_magico(df_actual, df_real_edit, f_elab, f_prog)
+            st.download_button(
+                label="📊 2. Descargar Excel con Fórmulas (.xlsx)",
+                data=excel_magico_bytes,
+                file_name=f"CONCILIACION_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        with c_btn3:
+            if st.button("📁 3. Archivar en Histórico Oficial", type="secondary", use_container_width=True):
+                cargas_finales = df_real_edit[df_real_edit["Importe ($)"] > 0].copy()
+                if cargas_finales.empty:
+                    st.warning("No hay registros mayores a $0 para archivar.")
                 else:
-                    st.error("❌ Error al actualizar los registros.")
+                    historial = leer_historico()
+                    folio = f"CARGA-{f_prog.strftime('%Y%m%d')}-{len(historial)+1}"
+                    
+                    registro_cierre = {
+                        "folio": folio,
+                        "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
+                        "fecha_programacion": f_prog.strftime("%d/%m/%Y"),
+                        "fecha_registro_sistema": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                        "total_solicitado": float(total_global_sol),
+                        "total_ejercido": float(total_real_ejercido),
+                        "ahorro_remanente": float(remanente_total),
+                        "total_vehiculos": int(len(cargas_finales)),
+                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador / Encargado", "Importe ($)"]].to_dict(orient="records")
+                    }
+                    historial.insert(0, registro_cierre)
+                    guardar_historico(historial)
+                    st.success(f"✅ ¡Folio **{folio}** archivado exitosamente!")
+                    st.rerun()
 
+    # ==========================================
+    # HISTÓRICO Y REGISTROS
+    # ==========================================
+    with tab_historico:
+        st.markdown("##### 📁 Registro Histórico de Cargas Semanales Finalizadas")
+        historial_registros = leer_historico()
+        
+        if not historial_registros:
+            st.info("Aún no hay registros de cargas archivadas en el histórico.")
+        else:
+            filas_resumen_hist = []
+            for h in historial_registros:
+                filas_resumen_hist.append({
+                    "Folio": h["folio"],
+                    "Fecha Programada": h["fecha_programacion"],
+                    "Fecha Elaboró": h["fecha_elaboro"],
+                    "Vehículos": f"{h['total_vehiculos']} uds",
+                    "Total Ejercido ($)": h["total_ejercido"],
+                    "Ahorro / Remanente ($)": h["ahorro_remanente"],
+                    "Fecha de Archivo": h["fecha_registro_sistema"]
+                })
+            
+            df_hist_resumen = pd.DataFrame(filas_resumen_hist)
+            st.dataframe(
+                df_hist_resumen,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Total Ejercido ($)": st.column_config.NumberColumn(format="$%.2f"),
+                    "Ahorro / Remanente ($)": st.column_config.NumberColumn(format="$%.2f"),
+                }
+            )
+            
+            st.divider()
+            st.markdown("##### 🔍 Detalle Individual por Folio / Semana")
+            folios_disponibles = [h["folio"] for h in historial_registros]
+            folio_sel = st.selectbox("Selecciona un folio:", folios_disponibles)
+            registro_sel = next((h for h in historial_registros if h["folio"] == folio_sel), None)
+            
+            if registro_sel:
+                col_h1, col_h2, col_h3 = st.columns(3)
+                col_h1.metric("Total Ejercido", f"${registro_sel['total_ejercido']:,.2f}")
+                col_h2.metric("Ahorro / Remanente", f"${registro_sel['ahorro_remanente']:,.2f}")
+                col_h3.metric("Vehículos que Cargaron", f"{registro_sel['total_vehiculos']} unidades")
+                
+                df_detalle_folio = pd.DataFrame(registro_sel["detalle"])
+                st.dataframe(
+                    df_detalle_folio,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={"Importe ($)": st.column_config.NumberColumn(format="$%.2f")}
+                )
+
+    # ==========================================
+    # CENTRO DE AVISOS
+    # ==========================================
     with tab_avisos:
         st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
         
@@ -530,7 +770,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje o Instrucción:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar la carga...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -568,47 +808,27 @@ else:
                             guardar_avisos(avisos_existentes)
                             st.rerun()
 
-    with tab_edicion:
-        df_admin_edit = st.data_editor(
-            df_actual,
-            use_container_width=True,
-            disabled=["row", "Vehículo", "Placa"],
-            column_config={
-                "Solicitante": st.column_config.TextColumn("Solicitante", disabled=False),
-                "Operador / Encargado": st.column_config.TextColumn("Operador / Encargado"),
-                "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "Actividad": st.column_config.TextColumn("Actividad", width="large"),
-                "row": None
-            },
-            hide_index=True,
-            key="editor_admin"
-        )
-        
-        if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
-            with st.spinner("Actualizando Google Sheets..."):
-                if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
-                    st.success("✅ Datos sincronizados correctamente.")
-                    st.rerun()
-
+    # ==========================================
+    # MODO PRUEBAS Y MANTENIMIENTO
+    # ==========================================
     with tab_mantenimiento:
-        st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza de Cargas")
+        st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
-        # Botón de Limpieza y Reinicio de Cargas a $0.00
         with st.container(border=True):
-            st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas")
-            st.write("Esta acción borra los nombres de los encargados y regresa los importes a **$0.00** en Google Sheets, restaurando el presupuesto disponible al 100%.")
+            st.subheader("🧹 Reiniciar / Limpiar Cargas a $0.00")
+            st.write("Esta acción regresa todos los importes a **$0.00** en Google Sheets para iniciar una nueva semana de captura.")
             
-            if st.button("🗑️ Limpiar Todo y Restablecer a $0.00", type="secondary", use_container_width=True):
+            if st.button("🗑️ Limpiar Todo a $0.00", type="secondary", use_container_width=True):
                 df_limpio = df_actual.copy()
                 df_limpio["Operador / Encargado"] = ""
                 df_limpio["Importe ($)"] = 0.0
                 
                 with st.spinner("Limpiando registros en Google Sheets..."):
                     if guardar_en_sheets(df_limpio, f_elab, f_prog):
-                        st.success("✅ Sistema reiniciado: todas las unidades volvieron a $0.00.")
+                        st.success("✅ Sistema restablecido a $0.00.")
                         st.rerun()
                     else:
-                        st.error("❌ Error al reiniciar datos en Google Sheets.")
+                        st.error("❌ Error al reiniciar datos.")
 
         with st.container(border=True):
             st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
