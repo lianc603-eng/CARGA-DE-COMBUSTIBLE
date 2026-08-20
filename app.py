@@ -53,7 +53,6 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# Funciones de configuración del sistema
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -171,33 +170,66 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
     # Cabecera de Tabla
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(220, 220, 220)
-    pdf.cell(50, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
-    pdf.cell(35, 7, 'VEHICULO', 1, 0, 'C', True)
-    pdf.cell(20, 7, 'PLACA', 1, 0, 'C', True)
-    pdf.cell(20, 7, 'REGIMEN', 1, 0, 'C', True)
-    pdf.cell(25, 7, 'IMPORTE', 1, 0, 'C', True)
-    pdf.cell(25, 7, 'TIPO', 1, 0, 'C', True)
-    pdf.cell(95, 7, 'ACTIVIDAD', 1, 1, 'C', True)
+    pdf.cell(48, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
+    pdf.cell(32, 7, 'VEHICULO', 1, 0, 'C', True)
+    pdf.cell(18, 7, 'PLACA', 1, 0, 'C', True)
+    pdf.cell(18, 7, 'REGIMEN', 1, 0, 'C', True)
+    pdf.cell(22, 7, 'IMPORTE', 1, 0, 'C', True)
+    pdf.cell(16, 7, 'TIPO', 1, 0, 'C', True)
+    pdf.cell(116, 7, 'ACTIVIDAD', 1, 1, 'C', True)
     
-    # Filas con Carga
+    # Filas con cálculo dinámico de altura para texto completo
     pdf.set_font('Helvetica', '', 7)
     total = 0.0
+    ancho_actividad = 116
+    line_h = 4.2
+    
     for _, row in df_cargas.iterrows():
-        pdf.cell(50, 6, str(row["Operador / Encargado"])[:30], 1, 0, 'L')
-        pdf.cell(35, 6, str(row["Vehículo"])[:22], 1, 0, 'L')
-        pdf.cell(20, 6, str(row["Placa"]), 1, 0, 'C')
-        pdf.cell(20, 6, 'OFICIAL', 1, 0, 'C')
-        pdf.cell(25, 6, f"${float(row['Importe ($)']):,.2f}", 1, 0, 'R')
-        pdf.cell(25, 6, 'MAGNA', 1, 0, 'C')
-        pdf.cell(95, 6, str(row["Actividad"])[:60], 1, 1, 'L')
+        actividad_texto = str(row["Actividad"]).strip()
+        
+        # Calcular el número de líneas que ocupa la actividad
+        lineas = len(pdf.multi_cell(ancho_actividad, line_h, actividad_texto, split_only=True))
+        lineas = max(lineas, 1)
+        row_height = lineas * line_h
+        
+        # Salto de página automático si no cabe la fila completa
+        if pdf.get_y() + row_height > 190:
+            pdf.add_page()
+            pdf.set_font('Helvetica', 'B', 8)
+            pdf.set_fill_color(220, 220, 220)
+            pdf.cell(48, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
+            pdf.cell(32, 7, 'VEHICULO', 1, 0, 'C', True)
+            pdf.cell(18, 7, 'PLACA', 1, 0, 'C', True)
+            pdf.cell(18, 7, 'REGIMEN', 1, 0, 'C', True)
+            pdf.cell(22, 7, 'IMPORTE', 1, 0, 'C', True)
+            pdf.cell(16, 7, 'TIPO', 1, 0, 'C', True)
+            pdf.cell(116, 7, 'ACTIVIDAD', 1, 1, 'C', True)
+            pdf.set_font('Helvetica', '', 7)
+            
+        x_ini = pdf.get_x()
+        y_ini = pdf.get_y()
+        
+        pdf.cell(48, row_height, str(row["Operador / Encargado"]), 1, 0, 'L')
+        pdf.cell(32, row_height, str(row["Vehículo"]), 1, 0, 'L')
+        pdf.cell(18, row_height, str(row["Placa"]), 1, 0, 'C')
+        pdf.cell(18, row_height, 'OFICIAL', 1, 0, 'C')
+        pdf.cell(22, row_height, f"${float(row['Importe ($)']):,.2f}", 1, 0, 'R')
+        pdf.cell(16, row_height, 'MAGNA', 1, 0, 'C')
+        
+        # Celda multilínea para actividad con recuadro exterior
+        x_act = pdf.get_x()
+        pdf.multi_cell(ancho_actividad, line_h, actividad_texto, 0, 'L')
+        pdf.rect(x_act, y_ini, ancho_actividad, row_height)
+        
+        pdf.set_xy(x_ini, y_ini + row_height)
         total += float(row["Importe ($)"])
         
-    # Fila de Total
+    # Fila de Total Final
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(240, 240, 240)
-    pdf.cell(125, 7, 'TOTAL AUTORIZADO:', 1, 0, 'R', True)
-    pdf.cell(25, 7, f"${total:,.2f}", 1, 0, 'R', True)
-    pdf.cell(120, 7, '', 1, 1, 'L', True)
+    pdf.cell(116, 7, 'TOTAL AUTORIZADO:', 1, 0, 'R', True)
+    pdf.cell(22, 7, f"${total:,.2f}", 1, 0, 'R', True)
+    pdf.cell(132, 7, '', 1, 1, 'L', True)
     
     return bytes(pdf.output())
 
@@ -292,6 +324,7 @@ if not es_admin:
         for idx, row in df_solicitante.iterrows():
             with st.container(border=True):
                 st.markdown(f"🛵 **{row['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row['Placa']}`**")
+                st.caption(f"📋 **Actividad asignada:** {row['Actividad']}")
                 
                 c_op, c_imp = st.columns([1.5, 1])
                 
@@ -319,6 +352,7 @@ if not es_admin:
                     "Solicitante": row["Solicitante"],
                     "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"],
+                    "Actividad": row["Actividad"],
                     "Operador / Encargado": val_encargado,
                     "Importe ($)": val_importe
                 })
@@ -418,7 +452,10 @@ else:
                 df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Actividad"]],
                 use_container_width=True,
                 hide_index=True,
-                column_config={"Importe ($)": st.column_config.NumberColumn(format="$%.2f")}
+                column_config={
+                    "Importe ($)": st.column_config.NumberColumn(format="$%.2f"),
+                    "Actividad": st.column_config.TextColumn("Actividad Oficial", width="large")
+                }
             )
             
             st.markdown("---")
@@ -448,12 +485,13 @@ else:
         df_admin_edit = st.data_editor(
             df_actual,
             use_container_width=True,
-            disabled=["row", "Vehículo", "Placa", "Actividad"],
+            disabled=["row", "Vehículo", "Placa"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Solicitante", disabled=False),
                 "Operador / Encargado": st.column_config.TextColumn("Operador / Encargado"),
                 "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "Actividad": None
+                "Actividad": st.column_config.TextColumn("Actividad", width="large"),
+                "row": None
             },
             hide_index=True,
             key="editor_admin"
