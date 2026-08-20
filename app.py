@@ -96,7 +96,7 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# GENERADORES DE EXCEL Y PDF (SOLO CON CARGA)
+# GENERADORES DE ARCHIVOS OFICIALES
 # ==========================================
 def generar_excel_filtrado(df_cargas, f_elab, f_prog):
     output = io.BytesIO()
@@ -104,7 +104,6 @@ def generar_excel_filtrado(df_cargas, f_elab, f_prog):
     ws = wb.active
     ws.title = "Solicitud de Carga"
     
-    # Encabezados
     ws["B2"] = "H. AYUNTAMIENTO DE CAMPECHE"
     ws["B4"] = "Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE"
     ws["F6"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
@@ -136,34 +135,30 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # Encabezado Oficial
-    pdf.set_font('Arial', 'B', 14)
+    pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 6, 'H. AYUNTAMIENTO DE CAMPECHE', 0, 1, 'C')
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 5, 'DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 1, 'C')
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 5, 'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 1, 'C')
     pdf.ln(3)
     
-    # Fechas
-    pdf.set_font('Arial', '', 9)
+    pdf.set_font('Helvetica', '', 9)
     pdf.cell(140, 5, 'Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 0, 'L')
-    pdf.cell(130, 5, f'Elaboró: {f_elab.strftime("%d/%m/%Y")}', 0, 1, 'R')
+    pdf.cell(130, 5, f'Elaboro: {f_elab.strftime("%d/%m/%Y")}', 0, 1, 'R')
     pdf.cell(140, 5, '', 0, 0, 'L')
-    pdf.cell(130, 5, f'Programación para el día: {f_prog.strftime("%d/%m/%Y")}', 0, 1, 'R')
+    pdf.cell(130, 5, f'Programacion para el dia: {f_prog.strftime("%d/%m/%Y")}', 0, 1, 'R')
     pdf.ln(4)
     
-    # Cabecera de Tabla
-    pdf.set_font('Arial', 'B', 8)
+    pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(220, 220, 220)
     pdf.cell(50, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
-    pdf.cell(35, 7, 'VEHÍCULO', 1, 0, 'C', True)
+    pdf.cell(35, 7, 'VEHICULO', 1, 0, 'C', True)
     pdf.cell(20, 7, 'PLACA', 1, 0, 'C', True)
-    pdf.cell(20, 7, 'RÉGIMEN', 1, 0, 'C', True)
+    pdf.cell(20, 7, 'REGIMEN', 1, 0, 'C', True)
     pdf.cell(25, 7, 'IMPORTE', 1, 0, 'C', True)
     pdf.cell(25, 7, 'TIPO', 1, 0, 'C', True)
     pdf.cell(95, 7, 'ACTIVIDAD', 1, 1, 'C', True)
     
-    # Filas con Carga
-    pdf.set_font('Arial', '', 7)
+    pdf.set_font('Helvetica', '', 7)
     total = 0.0
     for _, row in df_cargas.iterrows():
         pdf.cell(50, 6, str(row["Operador / Encargado"])[:30], 1, 0, 'L')
@@ -175,27 +170,25 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
         pdf.cell(95, 6, str(row["Actividad"])[:60], 1, 1, 'L')
         total += float(row["Importe ($)"])
         
-    # Fila de Total
-    pdf.set_font('Arial', 'B', 8)
+    pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(125, 7, 'TOTAL AUTORIZADO:', 1, 0, 'R', True)
     pdf.cell(25, 7, f"${total:,.2f}", 1, 0, 'R', True)
     pdf.cell(120, 7, '', 1, 1, 'L', True)
     
-    # Firmas institucionales
     pdf.ln(18)
     pdf.cell(85, 4, '__________________________________', 0, 0, 'C')
     pdf.cell(95, 4, '', 0, 0, 'C')
     pdf.cell(85, 4, '__________________________________', 0, 1, 'C')
     
-    pdf.cell(85, 4, 'SOLICITA / ELABORÓ', 0, 0, 'C')
+    pdf.cell(85, 4, 'SOLICITA / ELABORO', 0, 0, 'C')
     pdf.cell(95, 4, '', 0, 0, 'C')
     pdf.cell(85, 4, 'AUTORIZA', 0, 1, 'C')
     
-    return pdf.output(dest='S').encode('latin1')
+    return bytes(pdf.output())
 
 # ==========================================
-# 1. LOGIN
+# 1. INICIO DE SESIÓN
 # ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
@@ -219,7 +212,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y REVISIÓN DE HORARIO
+# 2. ENCABEZADO Y HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -317,7 +310,6 @@ else:
         "✏️ Editor General de Unidades"
     ])
 
-    # Filtrar únicamente los vehículos que van a cargar (> 0)
     df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
 
     with tab_saldos:
@@ -364,8 +356,9 @@ else:
         if df_solo_cargas.empty:
             st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
         else:
+            # Vista limpia sin la columna Solicitante
             st.dataframe(
-                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Solicitante", "Actividad"]],
+                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Actividad"]],
                 use_container_width=True,
                 hide_index=True,
                 column_config={"Importe ($)": st.column_config.NumberColumn(format="$%.2f")}
@@ -414,3 +407,4 @@ else:
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
                     st.success("✅ Datos sincronizados correctamente.")
                     st.rerun()
+                    
