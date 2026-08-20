@@ -13,9 +13,16 @@ from fpdf import FPDF
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
+# ==========================================================
+# AJUSTES PRINCIPALES
+# ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
 HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
+
+# 👉 DEJA ESTO EN True MIENTRAS HACES PRUEBAS PARA QUE NADIE SE BLOQUEE
+HABILITAR_CAPTURA_24_7 = True  
+
 CONFIG_FILE = "config_sistema.json"
 AVISOS_FILE = "avisos_sistema.json"
 HISTORICO_FILE = "historico_cargas.json"
@@ -61,15 +68,15 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# --- PERSISTENCIA LOCAL SEGURA ---
+# --- PERSISTENCIA LOCAL ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)[cite: 1]
+                return json.load(f)
         except Exception:
             pass
-    return {"desbloqueo_horario": False}
+    return {"desbloqueo_horario": True}
 
 def guardar_config(cfg):
     try:
@@ -110,10 +117,6 @@ def guardar_historico(hist):
     except Exception:
         pass
 
-# Inicialización de estado en sesión
-if "config_sistema" not in st.session_state:
-    st.session_state.config_sistema = leer_config()
-
 def obtener_datos_sheets(forzar=False):
     if "df_datos" in st.session_state and not forzar:
         return st.session_state.df_datos
@@ -147,7 +150,6 @@ def obtener_datos_sheets(forzar=False):
     if "df_datos" in st.session_state:
         return st.session_state.df_datos
 
-    # Base limpia inicial si la red tarda
     filas_base = []
     for r, info in MAPEO_SOLICITANTES.items():
         filas_base.append({
@@ -414,7 +416,8 @@ es_admin = (usuario_efectivo == "LIAN")
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 
-desbloqueo_activo = st.session_state.config_sistema.get("desbloqueo_horario", False)
+cfg_actual = leer_config()
+desbloqueo_activo = HABILITAR_CAPTURA_24_7 or cfg_actual.get("desbloqueo_horario", False)
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
@@ -425,16 +428,14 @@ with c1:
     else:
         st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_efectivo}**")
         
-    estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado"
-    if desbloqueo_activo:
-        estado_horario += " (⚡ Desbloqueo temporal activo)"
+    estado_horario = "🟢 Horario Abierto (Modo Pruebas)" if not sistema_bloqueado else "🔴 Horario Cerrado (3:00 PM)"
     st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
 
 with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
         st.session_state.df_datos = obtener_datos_sheets(forzar=True)
-        st.success("Datos actualizados.")
+        st.success("Sincronizado.")
         st.rerun()
 
 with c3:
@@ -702,7 +703,7 @@ else:
                     df_actual.loc[mask_lian, "Operador_Sol"] = val_op_lian
                     df_actual.loc[mask_lian, "Importe_Sol"] = val_imp_lian
                     enviar_datos_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Tu carga fue registrada correctamente.")
+                    st.success("✅ Tu carga fue registrada y sincronizada correctamente.")
                     st.rerun()
 
     # -------------------------------------------------------------
@@ -857,7 +858,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -918,17 +919,8 @@ else:
                 st.rerun()
 
         with st.container(border=True):
-            st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
-            
-            # Toggle directo conectado al estado de sesión
-            valor_actual_toggle = st.session_state.config_sistema.get("desbloqueo_horario", False)
-            toggle_horario = st.checkbox("Habilitar captura 24/7 (Desactivar límite de 3:00 PM)", value=valor_actual_toggle)
-            
-            if toggle_horario != valor_actual_toggle:
-                st.session_state.config_sistema["desbloqueo_horario"] = toggle_horario
-                guardar_config(st.session_state.config_sistema)
-                st.toast("Horario actualizado.")
-                st.rerun()
+            st.subheader("⏰ Estado de Captura de Horario")
+            st.success("🟢 Modo de captura 24/7 ACTIVO para todas las áreas (Límite de 3:00 PM suspendido para pruebas).")
 
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
