@@ -194,16 +194,16 @@ if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 
 if st.session_state.usuario_logueado is None:
-    st.title("⛽ Sistema de Solicitud de Combustible")
+    st.title("⛽ Solicitud de Combustible")
     st.caption("Dirección de Desarrollo Urbano y Medio Ambiente")
     
-    col1, col2, col3 = st.columns([1, 1.2, 1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("form_login"):
             st.subheader("🔐 Iniciar Sesión")
-            usr = st.selectbox("Selecciona tu Usuario / Solicitante", list(USUARIOS_PASSWORD.keys()))
+            usr = st.selectbox("Selecciona tu Usuario", list(USUARIOS_PASSWORD.keys()))
             pwd = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Ingresar al Sistema", use_container_width=True):
+            if st.form_submit_button("Entrar", use_container_width=True):
                 if pwd == USUARIOS_PASSWORD.get(usr):
                     st.session_state.usuario_logueado = usr
                     st.rerun()
@@ -212,7 +212,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y HORARIO
+# 2. ENCABEZADO Y CONTROL DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -221,76 +221,99 @@ ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin
 
-c1, c2 = st.columns([4, 1])
+c1, c2 = st.columns([3, 1])
 with c1:
-    st.title("⛽ Control Semanal de Combustible")
+    st.title("⛽ Control de Combustible")
     st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario}**")
-    st.caption(f"🕒 Hora local: **{ahora_local.strftime('%I:%M %p')}** | Límite de carga: **3:00 PM**")
+    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | Límite: **3:00 PM**")
 with c2:
     st.write("")
-    if st.button("🚪 Cerrar Sesión", use_container_width=True):
+    if st.button("🚪 Salir", use_container_width=True):
         st.session_state.usuario_logueado = None
         st.rerun()
 
 df_actual = obtener_datos_sheets()
 
 if df_actual.empty:
-    st.warning("Cargando datos desde Google Sheets...")
+    st.warning("Cargando datos...")
     st.stop()
 
 # ==========================================
-# 3. VISTA SOLICITANTE
+# 3. VISTA SOLICITANTE (TARJETAS MÓVILES)
 # ==========================================
 if not es_admin:
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario].copy()
     
     if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO POR HORARIO LÍMITE (3:00 PM)**. La captura se encuentra deshabilitada.")
+        st.error("🔒 **SISTEMA CERRADO (3:00 PM)**. Captura deshabilitada.")
+    else:
+        st.info("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
     
-    tab_solicitud, tab_resumen = st.tabs(["📝 Captura y Distribución", "📊 Resumen y Saldo de Cargas"])
-    
-    with tab_solicitud:
-        columnas_bloqueadas = ["row", "Solicitante", "Vehículo", "Placa", "Actividad"]
-        if sistema_bloqueado:
-            columnas_bloqueadas.extend(["Operador / Encargado", "Importe ($)"])
+    # Formulario con tarjetas individuales por vehículo
+    with st.form("form_solicitante_movil"):
+        nuevos_valores = []
         
-        df_edit = st.data_editor(
-            df_solicitante,
-            use_container_width=True,
-            disabled=columnas_bloqueadas,
-            column_config={
-                "Operador / Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
-                "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "Solicitante": None, "Actividad": None
-            },
-            hide_index=True,
-            key="editor_usuario"
-        )
+        for idx, row in df_solicitante.iterrows():
+            with st.container(border=True):
+                st.markdown(f"🛵 **{row['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row['Placa']}`**")
+                
+                c_op, c_imp = st.columns([1.5, 1])
+                
+                with c_op:
+                    val_encargado = st.text_input(
+                        "Nombre del Conductor / Operador",
+                        value=row["Operador / Encargado"],
+                        key=f"op_{row['row']}",
+                        disabled=sistema_bloqueado,
+                        placeholder="Ej. Juan Pérez"
+                    )
+                with c_imp:
+                    val_importe = st.number_input(
+                        "Monto ($)",
+                        value=float(row["Importe ($)"]),
+                        step=50.0,
+                        min_value=0.0,
+                        key=f"imp_{row['row']}",
+                        disabled=sistema_bloqueado,
+                        format="%.2f"
+                    )
+                
+                nuevos_valores.append({
+                    "row": row["row"],
+                    "Solicitante": row["Solicitante"],
+                    "Vehículo": row["Vehículo"],
+                    "Placa": row["Placa"],
+                    "Operador / Encargado": val_encargado,
+                    "Importe ($)": val_importe
+                })
         
-        total_solicitado = df_edit["Importe ($)"].sum()
-        saldo_disponible = presupuesto_propio - total_solicitado
+        df_edit_movil = pd.DataFrame(nuevos_valores)
+        total_capturado = df_edit_movil["Importe ($)"].sum()
+        saldo_restante = presupuesto_propio - total_capturado
         
+        # Barra resumen de saldos al pie del formulario
+        st.divider()
         m1, m2, m3 = st.columns(3)
-        m1.metric("Presupuesto Asignado", f"${presupuesto_propio:,.2f}")
-        m2.metric("Total Solicitado", f"${total_solicitado:,.2f}", delta=f"{total_solicitado - presupuesto_propio:,.2f}", delta_color="inverse")
-        m3.metric("Saldo Disponible", f"${saldo_disponible:,.2f}", delta_color="normal" if saldo_disponible >= 0 else "off")
+        m1.metric("Presupuesto", f"${presupuesto_propio:,.2f}")
+        m2.metric("Total a Cargar", f"${total_capturado:,.2f}")
+        m3.metric("Saldo Disponible", f"${saldo_restante:,.2f}", delta_color="normal" if saldo_restante >= 0 else "off")
         
-        if not sistema_bloqueado:
-            if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
+        if total_capturado > presupuesto_propio:
+            st.error(f"⚠️ Excedes tu presupuesto por **${abs(saldo_restante):,.2f} MXN**.")
+            
+        btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True, disabled=sistema_bloqueado)
+        
+        if btn_guardar:
+            if total_capturado > presupuesto_propio:
+                st.error("No puedes guardar si excedes el presupuesto autorizado.")
+            else:
                 with st.spinner("Guardando en Google Sheets..."):
-                    if guardar_en_sheets(df_edit):
-                        st.success("✅ Solicitud guardada correctamente.")
+                    if guardar_en_sheets(df_edit_movil):
+                        st.success("✅ ¡Solicitud guardada con éxito!")
                         st.rerun()
-
-    with tab_resumen:
-        st.subheader("🔍 Vehículos que cargarán combustible")
-        cargas_activas = df_edit[df_edit["Importe ($)"] > 0][["Vehículo", "Placa", "Operador / Encargado", "Importe ($)"]]
-        
-        if not cargas_activas.empty:
-            st.dataframe(cargas_activas, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No hay vehículos con importe asignado actualmente.")
+                    else:
+                        st.error("❌ Error al guardar.")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
@@ -356,7 +379,6 @@ else:
         if df_solo_cargas.empty:
             st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
         else:
-            # Vista limpia sin la columna Solicitante
             st.dataframe(
                 df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Actividad"]],
                 use_container_width=True,
@@ -407,4 +429,3 @@ else:
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
                     st.success("✅ Datos sincronizados correctamente.")
                     st.rerun()
-                    
