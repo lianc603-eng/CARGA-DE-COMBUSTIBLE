@@ -14,13 +14,13 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# AJUSTES PRINCIPALES
+# CONFIGURACIONES GENERALES
 # ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
 HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
-# 👉 DEJA ESTO EN True MIENTRAS HACES PRUEBAS PARA QUE NADIE SE BLOQUEE
+# Modo 24/7 activo para que los solicitantes puedan guardar en cualquier momento
 HABILITAR_CAPTURA_24_7 = True  
 
 CONFIG_FILE = "config_sistema.json"
@@ -117,12 +117,13 @@ def guardar_historico(hist):
     except Exception:
         pass
 
+# --- GESTIÓN DE DATOS CON GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
     if "df_datos" in st.session_state and not forzar:
         return st.session_state.df_datos
 
     try:
-        res = requests.get(WEBHOOK_URL, timeout=6)
+        res = requests.get(WEBHOOK_URL, timeout=8, allow_redirects=True)
         if res.status_code == 200:
             datos_raw = res.json().get("data", [])
             filas = []
@@ -185,16 +186,8 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         
     st.session_state.df_datos = registros.copy()
     try:
-        requests.post(WEBHOOK_URL, json=payload, timeout=5)
-        return True
-    except Exception:
-        return True
-
-def respaldar_en_sheets_historico(registro_obj):
-    payload = {"accion": "archivar_historico", "registro": registro_obj}
-    try:
-        requests.post(WEBHOOK_URL, json=payload, timeout=5)
-        return True
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=10, allow_redirects=True)
+        return res.status_code == 200
     except Exception:
         return False
 
@@ -405,20 +398,15 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y CONTROL DE HORARIO
+# 2. ENCABEZADO
 # ==========================================
 usuario_real = st.session_state.usuario_logueado
 es_admin_real = (usuario_real == "LIAN")
-
 usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.session_state.vista_simulada) else usuario_real
 es_admin = (usuario_efectivo == "LIAN")
 
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
-
-cfg_actual = leer_config()
-desbloqueo_activo = HABILITAR_CAPTURA_24_7 or cfg_actual.get("desbloqueo_horario", False)
-sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
 with c1:
@@ -427,15 +415,13 @@ with c1:
         st.warning(f"🧪 **MODO DE PRUEBA ACTIVO**: Simulando vista como **{usuario_efectivo}**")
     else:
         st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_efectivo}**")
-        
-    estado_horario = "🟢 Horario Abierto (Modo Pruebas)" if not sistema_bloqueado else "🔴 Horario Cerrado (3:00 PM)"
-    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
+    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | 🟢 Horario Abierto para Captura")
 
 with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
         st.session_state.df_datos = obtener_datos_sheets(forzar=True)
-        st.success("Sincronizado.")
+        st.toast("Datos actualizados desde Google Sheets.", icon="✅")
         st.rerun()
 
 with c3:
@@ -453,7 +439,7 @@ with c3:
 df_actual = obtener_datos_sheets()
 
 # ==========================================
-# 3. VISTA SOLICITANTE
+# 3. VISTA SOLICITANTE (MÓVIL)
 # ==========================================
 if not es_admin:
     lista_avisos = leer_avisos()
@@ -473,10 +459,7 @@ if not es_admin:
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
-    if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:00 PM)**. La captura está deshabilitada.")
-    else:
-        st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
+    st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
@@ -493,7 +476,6 @@ if not es_admin:
                         "Nombre del Conductor / Operador",
                         value=row["Operador_Sol"],
                         key=f"op_{row['row']}",
-                        disabled=sistema_bloqueado,
                         placeholder="Ej. Juan Pérez"
                     )
                 with c_imp:
@@ -503,7 +485,6 @@ if not es_admin:
                         step=50.0,
                         min_value=0.0,
                         key=f"imp_{row['row']}",
-                        disabled=sistema_bloqueado,
                         format="%.2f"
                     )
                 
@@ -532,19 +513,20 @@ if not es_admin:
         if total_capturado > presupuesto_propio:
             st.error(f"⚠️ Excedes tu presupuesto por **${abs(saldo_restante):,.2f} MXN**.")
             
-        btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True, disabled=sistema_bloqueado)
+        btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True)
         
         if btn_guardar:
             if total_capturado > presupuesto_propio:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
-                for _, r_m in df_edit_movil.iterrows():
-                    mask = df_actual["row"] == r_m["row"]
-                    df_actual.loc[mask, "Operador_Sol"] = r_m["Operador_Sol"]
-                    df_actual.loc[mask, "Importe_Sol"] = r_m["Importe_Sol"]
-                enviar_datos_sheets(df_actual, tipo="solicitado")
-                st.success("✅ ¡Solicitud guardada con éxito!")
-                st.rerun()
+                with st.spinner("Guardando en Google Sheets..."):
+                    for _, r_m in df_edit_movil.iterrows():
+                        mask = df_actual["row"] == r_m["row"]
+                        df_actual.loc[mask, "Operador_Sol"] = r_m["Operador_Sol"]
+                        df_actual.loc[mask, "Importe_Sol"] = r_m["Importe_Sol"]
+                    enviar_datos_sheets(df_actual, tipo="solicitado")
+                    st.success("✅ ¡Solicitud guardada con éxito en Google Sheets!")
+                    st.rerun()
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
@@ -570,12 +552,9 @@ else:
 
     df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
-    # -------------------------------------------------------------
-    # 1. APARTADO: MONITOREO DE SALDOS POR ÁREA
-    # -------------------------------------------------------------
+    # 1. MONITOREO DE SALDOS
     with tab_saldos:
         st.markdown("##### 💵 Balance de Presupuestos en Tiempo Real")
-        
         total_global_sol = df_actual["Importe_Sol"].sum()
         saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
@@ -623,9 +602,7 @@ else:
             }
         )
 
-    # -------------------------------------------------------------
-    # 2. APARTADO: SOLICITUD FINAL (SOLO VEHÍCULOS QUE CARGAN)
-    # -------------------------------------------------------------
+    # 2. SOLICITUD FINAL
     with tab_solicitud_final:
         st.markdown("##### 🚗 Lista Oficial de Unidades a Cargar")
         
@@ -668,9 +645,7 @@ else:
                     use_container_width=True
                 )
 
-    # -------------------------------------------------------------
-    # 3. APARTADO: MI CARGA (LIAN)
-    # -------------------------------------------------------------
+    # 3. MI CARGA (LIAN)
     with tab_mi_carga:
         st.markdown("##### 🛵 Registro de Solicitud para tu Unidad")
         df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
@@ -703,12 +678,10 @@ else:
                     df_actual.loc[mask_lian, "Operador_Sol"] = val_op_lian
                     df_actual.loc[mask_lian, "Importe_Sol"] = val_imp_lian
                     enviar_datos_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Tu carga fue registrada y sincronizada correctamente.")
+                    st.success("✅ Tu carga fue registrada correctamente.")
                     st.rerun()
 
-    # -------------------------------------------------------------
-    # 4. APARTADO: AUDITORÍA Y CARGA REAL
-    # -------------------------------------------------------------
+    # 4. AUDITORÍA Y CARGA REAL
     with tab_auditoria:
         st.markdown("##### 🔍 Conciliación y Registro de Cargas Reales Comprobadas")
         st.caption("Captura el monto realmente cargado para calcular diferencias y remanentes:")
@@ -787,13 +760,10 @@ else:
                     }
                     historial.insert(0, registro_cierre_local)
                     guardar_historico(historial)
-                    respaldar_en_sheets_historico(registro_cierre)
                     st.success(f"✅ ¡Folio **{folio}** archivado exitosamente!")
                     st.rerun()
 
-    # -------------------------------------------------------------
-    # 5. APARTADO: HISTÓRICO DE CARGAS
-    # -------------------------------------------------------------
+    # 5. HISTÓRICO DE CARGAS
     with tab_historico:
         st.markdown("##### 📁 Registro Histórico de Cargas Semanales Finalizadas")
         historial_registros = leer_historico()
@@ -844,9 +814,7 @@ else:
                     column_config={"Importe_Real": st.column_config.NumberColumn("Importe Real ($)", format="$%.2f")}
                 )
 
-    # -------------------------------------------------------------
-    # 6. APARTADO: CENTRO DE AVISOS
-    # -------------------------------------------------------------
+    # 6. CENTRO DE AVISOS
     with tab_avisos:
         st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
         
@@ -858,7 +826,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -896,9 +864,7 @@ else:
                             guardar_avisos(avisos_existentes)
                             st.rerun()
 
-    # -------------------------------------------------------------
-    # 7. APARTADO: MODO PRUEBAS Y MANTENIMIENTO
-    # -------------------------------------------------------------
+    # 7. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
@@ -913,10 +879,11 @@ else:
                 df_limpio["Operador_Real"] = ""
                 df_limpio["Importe_Real"] = 0.0
                 
-                enviar_datos_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                st.success("✅ Todas las unidades restablecidas a $0.00.")
-                st.rerun()
+                with st.spinner("Restableciendo registros en Google Sheets..."):
+                    enviar_datos_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    enviar_datos_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
+                    st.success("✅ Todas las unidades restablecidas a $0.00.")
+                    st.rerun()
 
         with st.container(border=True):
             st.subheader("⏰ Estado de Captura de Horario")
