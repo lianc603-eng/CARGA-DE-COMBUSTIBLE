@@ -513,7 +513,7 @@ if not es_admin:
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación, Auditoría y Automatización")
+    st.subheader("⚙️ Panel de Consolidación y Descarga Oficial")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -521,8 +521,11 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_panel_principal, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
-        "📊 Panel de Cargas (Solicitada y Real)",
+    tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
+        "📊 Monitoreo de Saldos por Área",
+        "📄 Solicitud Final (Solo Vehículos que Cargan)",
+        "🛵 Mi Carga (LIAN)",
+        "✅ Auditoría y Carga Real",
         "📁 Histórico de Cargas",
         "📢 Centro de Avisos",
         "🛠️ Modo Pruebas"
@@ -530,36 +533,34 @@ else:
 
     df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
-    with tab_panel_principal:
-        # MÉTRICAS GLOBALES
+    # -------------------------------------------------------------
+    # 1. APARTADO: MONITOREO DE SALDOS POR ÁREA
+    # -------------------------------------------------------------
+    with tab_saldos:
+        st.markdown("##### 💵 Balance de Presupuestos en Tiempo Real")
+        
         total_global_sol = df_actual["Importe_Sol"].sum()
-        total_global_real = df_actual["Importe_Real"].sum()
-        ahorro_vs_sol = total_global_sol - total_global_real
-        saldo_global_disponible = PRESUPUESTO_GLOBAL - total_global_real
+        saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("1. Total Solicitado", f"${total_global_sol:,.2f}")
-        m2.metric("2. Total Real Ejercido", f"${total_global_real:,.2f}")
-        m3.metric("Ahorro / No Ejercido", f"${ahorro_vs_sol:,.2f}", delta_color="normal")
-        m4.metric("Presupuesto Disponible", f"${saldo_global_disponible:,.2f}", delta_color="normal")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c2.metric("Total Ya Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        c3.metric("Saldo Disponible Global", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
+        c4.metric("Bolsa Comodín", "$200.00")
         
-        st.divider()
-
-        # 1. MONITOREO DE SALDOS EN TIEMPO REAL POR ÁREA
-        st.markdown("### 📊 Monitoreo de Presupuestos y Saldos por Área")
+        st.write("")
         filas_saldos_area = []
         for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
             sub_df = df_actual[df_actual["Solicitante"] == sol]
             sol_monto = sub_df["Importe_Sol"].sum()
-            real_monto = sub_df["Importe_Real"].sum()
-            disp_monto = p_base - real_monto if real_monto > 0 else (p_base - sol_monto)
-            pct_ejercido = ((real_monto if real_monto > 0 else sol_monto) / p_base * 100) if p_base > 0 else 0
+            disp_monto = p_base - sol_monto
+            pct_ejercido = (sol_monto / p_base * 100) if p_base > 0 else 0
             
             if disp_monto == 0:
                 estatus = "✅ 100% Ejercido"
             elif disp_monto < 0:
                 estatus = "⚠️ Excedido"
-            elif (real_monto > 0 or sol_monto > 0):
+            elif sol_monto > 0:
                 estatus = "🟢 Con Saldo"
             else:
                 estatus = "⚪ Sin Carga"
@@ -568,7 +569,6 @@ else:
                 "Solicitante / Área": sol,
                 "Presupuesto Base": p_base,
                 "Monto Solicitado": sol_monto,
-                "Monto Real Ejercido": real_monto,
                 "Saldo Disponible": disp_monto,
                 "% Usado": f"{pct_ejercido:.1f}%",
                 "Estatus": estatus
@@ -582,69 +582,46 @@ else:
             column_config={
                 "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
                 "Monto Solicitado": st.column_config.NumberColumn(format="$%.2f"),
-                "Monto Real Ejercido": st.column_config.NumberColumn(format="$%.2f"),
                 "Saldo Disponible": st.column_config.NumberColumn(format="$%.2f"),
             }
         )
 
-        st.divider()
-
-        # 2. CAPTURA DE TU UNIDAD (LIAN)
-        st.markdown("### 🛵 Solicitud de Carga para tu Unidad (LIAN)")
-        df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+    # -------------------------------------------------------------
+    # 2. APARTADO: SOLICITUD FINAL (SOLO VEHÍCULOS QUE CARGAN)
+    # -------------------------------------------------------------
+    with tab_solicitud_final:
+        st.markdown("##### 🚗 Lista Oficial de Unidades a Cargar")
         
-        if not df_lian.empty:
-            row_lian = df_lian.iloc[0]
-            with st.container(border=True):
-                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto: **$150.00**")
-                
-                c_op_lian, c_imp_lian, c_btn_lian = st.columns([2, 1.2, 1.2])
-                with c_op_lian:
-                    val_op_lian = st.text_input(
-                        "Operador Encargado", 
-                        value=row_lian["Operador_Sol"] if row_lian["Operador_Sol"] else "FRANCISCO ALONZO",
-                        key="admin_op_lian"
-                    )
-                with c_imp_lian:
-                    val_imp_lian = st.number_input(
-                        "Importe Solicitado ($)", 
-                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else 150.00,
-                        step=50.0,
-                        min_value=0.0,
-                        key="admin_imp_lian",
-                        format="%.2f"
-                    )
-                with c_btn_lian:
-                    st.write("")
-                    st.write("")
-                    if st.button("💾 Guardar Mi Carga", type="primary", use_container_width=True):
-                        df_actual.loc[df_actual["Solicitante"] == "LIAN", "Operador_Sol"] = val_op_lian
-                        df_actual.loc[df_actual["Solicitante"] == "LIAN", "Importe_Sol"] = val_imp_lian
-                        with st.spinner("Guardando tu carga en Google Sheets..."):
-                            if guardar_en_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog):
-                                st.success("✅ Tu carga fue registrada correctamente.")
-                                st.rerun()
-
-        st.divider()
-
-        # 3. SECCIÓN 1: CARGA SOLICITADA OFICIAL
-        st.markdown("### 📋 Sección 1: Carga Solicitada Oficial")
         if df_solo_cargas_sol.empty:
-            st.info("ℹ️ Aún no hay unidades con solicitud de carga.")
+            st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
         else:
             st.dataframe(
-                df_solo_cargas_sol[["Operador_Sol", "Vehículo", "Placa", "Importe_Sol", "Solicitante", "Actividad"]],
+                df_solo_cargas_sol[["Operador_Sol", "Vehículo", "Placa", "Importe_Sol", "Actividad"]],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Operador_Sol": st.column_config.TextColumn("Encargado"),
-                    "Importe_Sol": st.column_config.NumberColumn("Importe Solicitado ($)", format="$%.2f"),
+                    "Operador_Sol": st.column_config.TextColumn("Operador / Encargado"),
+                    "Vehículo": st.column_config.TextColumn("Vehículo"),
+                    "Placa": st.column_config.TextColumn("Placa"),
+                    "Importe_Sol": st.column_config.NumberColumn("Importe ($)", format="$%.2f"),
                     "Actividad": st.column_config.TextColumn("Actividad", width="large")
                 }
             )
             
-            c_pdf1, c_pdf2 = st.columns(2)
-            with c_pdf1:
+            st.markdown("---")
+            col_d1, col_d2 = st.columns(2)
+            
+            with col_d1:
+                excel_bytes = generar_excel_completo(df_actual, f_elab, f_prog)
+                st.download_button(
+                    label="📥 Descargar Reporte en Excel (.xlsx)",
+                    data=excel_bytes,
+                    file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+            with col_d2:
                 pdf_bytes = generar_pdf_oficial(df_solo_cargas_sol, f_elab, f_prog)
                 st.download_button(
                     label="📄 Descargar Oficio Oficial en PDF",
@@ -653,21 +630,51 @@ else:
                     mime="application/pdf",
                     use_container_width=True
                 )
-            with c_pdf2:
-                excel_bytes = generar_excel_completo(df_actual, f_elab, f_prog)
-                st.download_button(
-                    label="📥 Descargar Excel con Ambas Secciones (.xlsx)",
-                    data=excel_bytes,
-                    file_name=f"CONTROL_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
 
-        st.divider()
+    # -------------------------------------------------------------
+    # 3. APARTADO: MI CARGA (LIAN)
+    # -------------------------------------------------------------
+    with tab_mi_carga:
+        st.markdown("##### 🛵 Registro de Solicitud para tu Unidad")
+        df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+        
+        if not df_lian.empty:
+            row_lian = df_lian.iloc[0]
+            with st.container(border=True):
+                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Base: **$150.00**")
+                st.caption(f"📋 **Actividad:** {row_lian['Actividad']}")
+                
+                c_op_lian, c_imp_lian = st.columns([1.5, 1])
+                with c_op_lian:
+                    val_op_lian = st.text_input(
+                        "Nombre del Conductor / Operador", 
+                        value=row_lian["Operador_Sol"] if row_lian["Operador_Sol"] else "FRANCISCO ALONZO",
+                        key="admin_op_lian_tab"
+                    )
+                with c_imp_lian:
+                    val_imp_lian = st.number_input(
+                        "Importe Solicitado ($)", 
+                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else 150.00,
+                        step=50.0,
+                        min_value=0.0,
+                        key="admin_imp_lian_tab",
+                        format="%.2f"
+                    )
+                
+                if st.button("💾 Guardar Mi Carga en Google Sheets", type="primary", use_container_width=True):
+                    df_actual.loc[df_actual["Solicitante"] == "LIAN", "Operador_Sol"] = val_op_lian
+                    df_actual.loc[df_actual["Solicitante"] == "LIAN", "Importe_Sol"] = val_imp_lian
+                    with st.spinner("Guardando en Google Sheets..."):
+                        if guardar_en_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog):
+                            st.success("✅ Tu carga fue registrada y sincronizada correctamente.")
+                            st.rerun()
 
-        # 4. SECCIÓN 2: CARGA REAL Y CONCILIACIÓN
-        st.markdown("### 🔍 Sección 2: Carga Real y Conciliación")
-        st.caption("Captura el importe comprobado para conciliar y guardar en Sheets:")
+    # -------------------------------------------------------------
+    # 4. APARTADO: AUDITORÍA Y CARGA REAL
+    # -------------------------------------------------------------
+    with tab_auditoria:
+        st.markdown("##### 🔍 Conciliación y Registro de Cargas Reales Comprobadas")
+        st.caption("Captura el monto realmente cargado para calcular diferencias y remanentes:")
         
         df_real_edit = st.data_editor(
             df_actual.copy(),
@@ -682,9 +689,22 @@ else:
                 "row": None, "Actividad": None, "Operador_Sol": None, "Operador_Real": None
             },
             hide_index=True,
-            key="editor_seccion_real_unificada"
+            key="editor_seccion_real_apartado"
         )
         
+        total_global_sol = df_actual["Importe_Sol"].sum()
+        total_global_real = df_real_edit["Importe_Real"].sum()
+        ahorro_vs_sol = total_global_sol - total_global_real
+        saldo_global_disponible = PRESUPUESTO_GLOBAL - total_global_real
+        
+        st.divider()
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Total Solicitado", f"${total_global_sol:,.2f}")
+        r2.metric("Total Real Ejercido", f"${total_global_real:,.2f}")
+        r3.metric("Ahorro vs Solicitado", f"${ahorro_vs_sol:,.2f}", delta_color="normal")
+        r4.metric("Saldo Disponible Restante", f"${saldo_global_disponible:,.2f}", delta_color="normal")
+        
+        st.write("")
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
             if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
@@ -695,7 +715,7 @@ else:
                     else:
                         st.error("❌ Error al guardar.")
         with btn_c2:
-            if st.button("📁 Archivar en Histórico Semanal (Nube y Local)", type="secondary", use_container_width=True):
+            if st.button("📁 Archivar en Histórico Oficial (Nube y Local)", type="secondary", use_container_width=True):
                 cargas_finales = df_real_edit[df_real_edit["Importe_Real"] > 0].copy()
                 if cargas_finales.empty:
                     st.warning("No hay registros mayores a $0 para archivar.")
@@ -740,9 +760,9 @@ else:
                     st.success(f"✅ ¡Folio **{folio}** archivado y respaldado en Google Sheets con éxito!")
                     st.rerun()
 
-    # ==========================================
-    # HISTÓRICO Y REGISTROS
-    # ==========================================
+    # -------------------------------------------------------------
+    # 5. APARTADO: HISTÓRICO DE CARGAS
+    # -------------------------------------------------------------
     with tab_historico:
         st.markdown("##### 📁 Registro Histórico de Cargas Semanales Finalizadas")
         historial_registros = leer_historico()
@@ -793,9 +813,9 @@ else:
                     column_config={"Importe_Real": st.column_config.NumberColumn("Importe Real ($)", format="$%.2f")}
                 )
 
-    # ==========================================
-    # CENTRO DE AVISOS
-    # ==========================================
+    # -------------------------------------------------------------
+    # 6. APARTADO: CENTRO DE AVISOS
+    # -------------------------------------------------------------
     with tab_avisos:
         st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
         
@@ -807,7 +827,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -845,9 +865,9 @@ else:
                             guardar_avisos(avisos_existentes)
                             st.rerun()
 
-    # ==========================================
-    # MODO PRUEBAS Y MANTENIMIENTO
-    # ==========================================
+    # -------------------------------------------------------------
+    # 7. APARTADO: MODO PRUEBAS Y MANTENIMIENTO
+    # -------------------------------------------------------------
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
@@ -865,7 +885,7 @@ else:
                 with st.spinner("Restableciendo registros en Google Sheets..."):
                     guardar_en_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                     guardar_en_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Ambas secciones restablecidas a $0.00.")
+                    st.success("✅ Todas las unidades restablecidas a $0.00.")
                     st.rerun()
 
         with st.container(border=True):
