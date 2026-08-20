@@ -53,7 +53,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# Funciones de Configuración de Pruebas / Mantenimiento
+# Funciones de configuración del sistema
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -153,12 +153,14 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
+    # Encabezado Oficial
     pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 6, 'H. AYUNTAMIENTO DE CAMPECHE', 0, 1, 'C')
     pdf.set_font('Helvetica', 'B', 10)
     pdf.cell(0, 5, 'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 1, 'C')
     pdf.ln(3)
     
+    # Fechas
     pdf.set_font('Helvetica', '', 9)
     pdf.cell(140, 5, 'Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 0, 'L')
     pdf.cell(130, 5, f'Elaboro: {f_elab.strftime("%d/%m/%Y")}', 0, 1, 'R')
@@ -166,6 +168,7 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
     pdf.cell(130, 5, f'Programacion para el dia: {f_prog.strftime("%d/%m/%Y")}', 0, 1, 'R')
     pdf.ln(4)
     
+    # Cabecera de Tabla
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(220, 220, 220)
     pdf.cell(50, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
@@ -176,6 +179,7 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
     pdf.cell(25, 7, 'TIPO', 1, 0, 'C', True)
     pdf.cell(95, 7, 'ACTIVIDAD', 1, 1, 'C', True)
     
+    # Filas con Carga
     pdf.set_font('Helvetica', '', 7)
     total = 0.0
     for _, row in df_cargas.iterrows():
@@ -188,20 +192,12 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
         pdf.cell(95, 6, str(row["Actividad"])[:60], 1, 1, 'L')
         total += float(row["Importe ($)"])
         
+    # Fila de Total
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(125, 7, 'TOTAL AUTORIZADO:', 1, 0, 'R', True)
     pdf.cell(25, 7, f"${total:,.2f}", 1, 0, 'R', True)
     pdf.cell(120, 7, '', 1, 1, 'L', True)
-    
-    pdf.ln(18)
-    pdf.cell(85, 4, '__________________________________', 0, 0, 'C')
-    pdf.cell(95, 4, '', 0, 0, 'C')
-    pdf.cell(85, 4, '__________________________________', 0, 1, 'C')
-    
-    pdf.cell(85, 4, 'SOLICITA / ELABORO', 0, 0, 'C')
-    pdf.cell(95, 4, '', 0, 0, 'C')
-    pdf.cell(85, 4, 'AUTORIZA', 0, 1, 'C')
     
     return bytes(pdf.output())
 
@@ -238,14 +234,12 @@ if st.session_state.usuario_logueado is None:
 usuario_real = st.session_state.usuario_logueado
 es_admin_real = (usuario_real == "LIAN")
 
-# Si el admin está simulando a un usuario para pruebas
 usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.session_state.vista_simulada) else usuario_real
 es_admin = (usuario_efectivo == "LIAN")
 
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 
-# Desbloqueo condicional si el modo de prueba/override está activo
 desbloqueo_activo = config_sistema.get("desbloqueo_horario", False)
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
@@ -471,7 +465,6 @@ else:
                     st.success("✅ Datos sincronizados correctamente.")
                     st.rerun()
 
-    # NUEVO: Pestaña de Control de Pruebas y Desbloqueo
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios y Simulación de Pruebas")
         st.caption("Estas herramientas te permiten modificar parámetros del sistema y testear la experiencia de cualquier solicitante:")
