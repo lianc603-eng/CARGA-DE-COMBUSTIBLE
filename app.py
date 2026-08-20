@@ -9,16 +9,15 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 PRESUPUESTO_GLOBAL = 3800.00
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Presupuesto semanal asignado a cada solicitante según tabulador base
+# Presupuesto semanal asignado por solicitante único
 PRESUPUESTO_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 200.00,
+    "COB CHAVEZ NARCISO DEL JESUS": 400.00,  # 2 motos ($200 c/u: 85GWU7 y 87GWU8)
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "JESUS COB": 200.00,
-    "NOEL CHAN": 850.00,
-    "LIAN": 150.00,
-    "RENAN/HELDER": 500.00,
-    "QUEVEDO": 1500.00,
+    "NOEL CHAN": 850.00,                    # 6 motos de inspección
+    "LIAN": 150.00,                         # Administrativo
+    "RENAN/HELDER": 500.00,                 # Automóvil Jetta
+    "QUEVEDO": 1500.00,                     # RAM, Nissan y Motosierra
 }
 
 # Mapeo oficial de vehículos por fila (filas 12 a 26 de FORMATO.xlsx)
@@ -26,7 +25,7 @@ MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
     14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8"},
-    15: {"solicita": "JESUS COB", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
     16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7"},
     17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8"},
     18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7"},
@@ -40,6 +39,7 @@ MAPEO_SOLICITANTES = {
     26: {"solicita": "QUEVEDO", "vehiculo": "MOTOSIERRA 310", "placa": "00611-23-MOT-49234"},
 }
 
+# Credenciales de acceso únicas (sin duplicados)
 USUARIOS_PASSWORD = {
     "LIAN": "admin123",
     "NOEL CHAN": "inspeccion2026",
@@ -48,7 +48,6 @@ USUARIOS_PASSWORD = {
     "COB CHAVEZ NARCISO DEL JESUS": "notif123",
     "PEREZ MAZIN CARLOS EDUARDO": "notif123",
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
-    "JESUS COB": "notif123"
 }
 
 def obtener_datos_sheets():
@@ -94,7 +93,7 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# 1. LOGIN
+# 1. INICIO DE SESIÓN
 # ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
@@ -118,7 +117,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. PANEL PRINCIPAL
+# 2. ENCABEZADO DE CONTROL
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -180,9 +179,9 @@ if not es_admin:
             st.info(f"ℹ️ Tienes **${saldo_disponible:,.2f} MXN** disponibles para asignar.")
             
         if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
-            with st.spinner("Guardando..."):
+            with st.spinner("Guardando en Google Sheets..."):
                 if guardar_en_sheets(df_edit):
-                    st.success("✅ Solicitud guardada y sincronizada correctamente en Google Sheets.")
+                    st.success("✅ Solicitud guardada y sincronizada correctamente.")
                 else:
                     st.error("❌ Error al guardar en Google Sheets.")
 
