@@ -15,6 +15,7 @@ PRESUPUESTO_GLOBAL = 3800.00
 HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 CONFIG_FILE = "config_sistema.json"
+AVISOS_FILE = "avisos_sistema.json"
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
@@ -57,6 +58,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
+# --- GESTIÓN DE CONFIGURACIÓN Y MENSAJES ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -69,6 +71,19 @@ def leer_config():
 def guardar_config(cfg):
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f)
+
+def leer_avisos():
+    if os.path.exists(AVISOS_FILE):
+        try:
+            with open(AVISOS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+def guardar_avisos(avisos):
+    with open(AVISOS_FILE, "w") as f:
+        json.dump(avisos, f)
 
 config_sistema = leer_config()
 
@@ -276,16 +291,31 @@ if df_actual.empty:
     st.stop()
 
 # ==========================================
-# 3. VISTA SOLICITANTE (TARJETAS MÓVILES)
+# 3. VISTA SOLICITANTE (TARJETAS MÓVILES + AVISOS)
 # ==========================================
 if not es_admin:
+    # Despliegue de avisos dirigidos al solicitante o generales
+    lista_avisos = leer_avisos()
+    mis_avisos = [a for a in lista_avisos if a["destinatario"] in ["TODOS", usuario_efectivo]]
+    
+    if mis_avisos:
+        for av in mis_avisos:
+            tipo = av.get("tipo", "Informativo")
+            texto_aviso = f"**{av['fecha']} - {av['destinatario']}:** {av['mensaje']}"
+            if tipo == "Urgente":
+                st.error(f"🚨 {texto_aviso}")
+            elif tipo == "Importante":
+                st.warning(f"⚠️ {texto_aviso}")
+            else:
+                st.info(f"📢 {texto_aviso}")
+                
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
     if sistema_bloqueado:
         st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:00 PM)**. La captura está deshabilitada.")
     else:
-        st.info("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
+        st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
@@ -356,7 +386,7 @@ if not es_admin:
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación, Auditoría y Descarga")
+    st.subheader("⚙️ Panel de Consolidación, Auditoría y Gestión")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -364,12 +394,13 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_cargas_activas, tab_confirmacion, tab_edicion, tab_mantenimiento = st.tabs([
-        "📊 Monitoreo de Saldos por Área",
-        "📄 Solicitud Final (Solo con Carga)", 
-        "✅ Auditoría y Confirmación Real",
-        "✏️ Editor General de Unidades",
-        "🛠️ Modo Pruebas y Mantenimiento"
+    tab_saldos, tab_cargas_activas, tab_confirmacion, tab_avisos, tab_edicion, tab_mantenimiento = st.tabs([
+        "📊 Saldos por Área",
+        "📄 Solicitud Final", 
+        "✅ Auditoría Real",
+        "📢 Centro de Avisos",
+        "✏️ Editor General",
+        "🛠️ Modo Pruebas"
     ])
 
     df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
@@ -451,14 +482,11 @@ else:
                     use_container_width=True
                 )
 
-    # NUEVA PESTAÑA: Auditoría y Confirmación Post-Carga
     with tab_confirmacion:
         st.markdown("##### ✅ Validación y Conciliación de Cargas Realizadas")
-        st.caption("Verifica si las unidades cargaron su monto completo. Si una unidad no cargó o cargó menos, ajusta el monto real para recalcular automáticamente los saldos disponibles:")
+        st.caption("Verifica si las unidades cargaron su monto completo. Ajusta si cargaron menos para recalcular saldos:")
         
         df_auditoria = df_actual.copy()
-        
-        # Editor específico de confirmación
         df_audit_edit = st.data_editor(
             df_auditoria,
             use_container_width=True,
@@ -485,12 +513,62 @@ else:
         ar3.metric("Unidades con Carga Real", f"{len(df_audit_edit[df_audit_edit['Importe ($)'] > 0])} unidades")
         
         if st.button("💾 Confirmar Cargas Reales y Guardar Registro Final", type="primary", use_container_width=True):
-            with st.spinner("Actualizando y recalculando saldos en Google Sheets..."):
+            with st.spinner("Actualizando Google Sheets..."):
                 if guardar_en_sheets(df_audit_edit, f_elab, f_prog):
-                    st.success("✅ Cargas confirmadas. Hoja de cálculo y saldos disponibles actualizados correctamente.")
+                    st.success("✅ Cargas confirmadas y saldos recalculados correctamente.")
                     st.rerun()
                 else:
                     st.error("❌ Error al actualizar los registros.")
+
+    # NUEVO: Pestaña de Centro de Avisos y Notificaciones
+    with tab_avisos:
+        st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
+        
+        with st.form("form_nuevo_aviso"):
+            c_dest, c_tipo = st.columns([2, 1])
+            with c_dest:
+                destinatarios_opciones = ["TODOS"] + [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
+                destinatario_sel = st.selectbox("Dirigido a:", destinatarios_opciones)
+            with c_tipo:
+                tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
+                
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje o Instrucción:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar la carga...")
+            
+            if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
+                if texto_aviso_nuevo.strip():
+                    avisos_act = leer_avisos()
+                    nuevo_obj = {
+                        "id": datetime.now().strftime("%Y%m%d%H%M%S"),
+                        "destinatario": destinatario_sel,
+                        "tipo": tipo_aviso,
+                        "mensaje": texto_aviso_nuevo.strip(),
+                        "fecha": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p")
+                    }
+                    avisos_act.insert(0, nuevo_obj)
+                    guardar_avisos(avisos_act)
+                    st.success("✅ Aviso publicado exitosamente.")
+                    st.rerun()
+                else:
+                    st.warning("Escribe un mensaje antes de publicar.")
+                    
+        st.divider()
+        st.markdown("##### 📋 Avisos Activos en el Sistema")
+        avisos_existentes = leer_avisos()
+        
+        if not avisos_existentes:
+            st.info("No hay avisos ni mensajes activos actualmente.")
+        else:
+            for idx, av in enumerate(avisos_existentes):
+                with st.container(border=True):
+                    col_info, col_del = st.columns([5, 1])
+                    with col_info:
+                        st.markdown(f"**Para:** `{av['destinatario']}` &nbsp;|&nbsp; Prioridad: **{av['tipo']}** &nbsp;|&nbsp; *{av['fecha']}*")
+                        st.write(av["mensaje"])
+                    with col_del:
+                        if st.button("🗑️ Borrar", key=f"del_aviso_{av['id']}"):
+                            avisos_existentes.pop(idx)
+                            guardar_avisos(avisos_existentes)
+                            st.rerun()
 
     with tab_edicion:
         df_admin_edit = st.data_editor(
@@ -516,12 +594,9 @@ else:
 
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios y Simulación de Pruebas")
-        st.caption("Estas herramientas te permiten modificar parámetros del sistema y testear la experiencia de cualquier solicitante:")
         
         with st.container(border=True):
             st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
-            st.write("Si activas este interruptor, los solicitantes podrán capturar o editar fuera de las 3:00 PM para pruebas o registros tardíos.")
-            
             estado_actual_toggle = config_sistema.get("desbloqueo_horario", False)
             toggle_horario = st.toggle("Habilitar captura 24/7 (Desactivar límite de 3:00 PM)", value=estado_actual_toggle)
             
@@ -533,8 +608,6 @@ else:
 
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
-            st.write("Selecciona a cualquier usuario para ver exactamente cómo se ve su interfaz en celular y simular una carga:")
-            
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
             solicitante_a_testear = st.selectbox("Selecciona al solicitante a simular:", usuarios_para_test)
             
