@@ -13,21 +13,23 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
+# Presupuestos asignados por solicitante único (Total = $3,800.00)
 PRESUPUESTO_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 400.00,
+    "COB CHAVEZ NARCISO DEL JESUS": 200.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "NOEL CHAN": 850.00,
+    "NOEL CHAN": 1050.00,
     "LIAN": 150.00,
     "RENAN/HELDER": 500.00,
     "QUEVEDO": 1500.00,
 }
 
+# Mapeo oficial de vehículos por fila (filas 12 a 26 de FORMATO.xlsx)
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
     14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8"},
-    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
+    15: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
     16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7"},
     17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8"},
     18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7"},
@@ -56,18 +58,19 @@ def obtener_datos_sheets():
         res = requests.get(WEBHOOK_URL, timeout=15)
         if res.status_code == 200:
             datos_raw = res.json().get("data", [])
+            filas_limpias = []
             for item in datos_raw:
                 r = int(item["row"])
                 if r in MAPEO_SOLICITANTES:
-                    item["Solicita"] = MAPEO_SOLICITANTES[r]["solicita"]
-                    item["Vehículo"] = MAPEO_SOLICITANTES[r]["vehiculo"]
-                    item["Placa"] = MAPEO_SOLICITANTES[r]["placa"]
-                    item["Encargado"] = str(item.get("encargado", "")).strip()
-                    try:
-                        item["Importe"] = float(item.get("importe", 0.0))
-                    except (ValueError, TypeError):
-                        item["Importe"] = 0.0
-            return pd.DataFrame(datos_raw)
+                    filas_limpias.append({
+                        "row": r,
+                        "Solicitante": MAPEO_SOLICITANTES[r]["solicita"],
+                        "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
+                        "Placa": MAPEO_SOLICITANTES[r]["placa"],
+                        "Operador / Encargado": str(item.get("encargado", "")).strip(),
+                        "Importe ($)": float(item.get("importe", 0.0)) if item.get("importe") else 0.0
+                    })
+            return pd.DataFrame(filas_limpias)
     except Exception as err:
         st.error(f"Error de conexión con Google Sheets: {err}")
     return pd.DataFrame()
@@ -82,8 +85,8 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
     for _, fila in registros.iterrows():
         payload["registros"].append({
             "row": int(fila["row"]),
-            "encargado": str(fila["Encargado"]).strip() if pd.notna(fila["Encargado"]) else "",
-            "importe": float(fila["Importe"]) if pd.notna(fila["Importe"]) else 0.0
+            "encargado": str(fila["Operador / Encargado"]).strip() if pd.notna(fila["Operador / Encargado"]) else "",
+            "importe": float(fila["Importe ($)"]) if pd.notna(fila["Importe ($)"]) else 0.0
         })
         
     try:
@@ -118,12 +121,11 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y REVISIÓN DE HORARIO
+# 2. ENCABEZADO Y CONTROL DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
 
-# Evaluación del límite de horario
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin
@@ -150,35 +152,36 @@ if df_actual.empty:
 # ==========================================
 if not es_admin:
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario, 0.00)
-    df_solicitante = df_actual[df_actual["Solicita"] == usuario].copy()
+    df_solicitante = df_actual[df_actual["Solicitante"] == usuario].copy()
     
     if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO POR HORARIO LIMITE (3:00 PM)**. La captura está deshabilitada. Contacta al Administrador para cualquier modificación.")
+        st.error("🔒 **SISTEMA CERRADO POR HORARIO LÍMITE (3:00 PM)**. La captura se encuentra deshabilitada. Contacta al Administrador para cualquier modificación.")
     
     tab_solicitud, tab_resumen = st.tabs(["📝 Captura y Distribución", "📊 Resumen y Saldo de Cargas"])
     
     with tab_solicitud:
         if not sistema_bloqueado:
-            st.caption("Captura el nombre del encargado y el importe para las unidades bajo tu cargo:")
+            st.caption("Captura el nombre del operador e importe para las unidades bajo tu cargo:")
         
-        columnas_bloqueadas = ["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"]
+        columnas_bloqueadas = ["row", "Solicitante", "Vehículo", "Placa"]
         if sistema_bloqueado:
-            columnas_bloqueadas.extend(["Encargado", "Importe"])
+            columnas_bloqueadas.extend(["Operador / Encargado", "Importe ($)"])
         
         df_edit = st.data_editor(
             df_solicitante,
             use_container_width=True,
             disabled=columnas_bloqueadas,
             column_config={
-                "Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
-                "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "encargado": None, "importe": None, "Solicita": None
+                "Operador / Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
+                "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None,
+                "Solicitante": None
             },
             hide_index=True,
             key="editor_usuario"
         )
         
-        total_solicitado = df_edit["Importe"].sum()
+        total_solicitado = df_edit["Importe ($)"].sum()
         saldo_disponible = presupuesto_propio - total_solicitado
         
         m1, m2, m3 = st.columns(3)
@@ -203,7 +206,7 @@ if not es_admin:
 
     with tab_resumen:
         st.subheader("🔍 Desglose de Cargas Solicitadas")
-        cargas_activas = df_edit[df_edit["Importe"] > 0][["Vehículo", "Placa", "Encargado", "Importe"]]
+        cargas_activas = df_edit[df_edit["Importe ($)"] > 0][["Vehículo", "Placa", "Operador / Encargado", "Importe ($)"]]
         
         if not cargas_activas.empty:
             st.dataframe(cargas_activas, use_container_width=True, hide_index=True)
@@ -231,18 +234,18 @@ else:
         df_admin_edit = st.data_editor(
             df_actual,
             use_container_width=True,
-            disabled=["row", "Vehículo", "Placa", "encargado", "importe"],
+            disabled=["row", "Vehículo", "Placa"],
             column_config={
-                "Solicita": st.column_config.TextColumn("Solicitante", disabled=True),
-                "Encargado": st.column_config.TextColumn("Operador / Encargado"),
-                "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "encargado": None, "importe": None
+                "Solicitante": st.column_config.TextColumn("Solicitante", disabled=True),
+                "Operador / Encargado": st.column_config.TextColumn("Operador / Encargado"),
+                "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None
             },
             hide_index=True,
             key="editor_admin"
         )
         
-        total_global = df_admin_edit["Importe"].sum()
+        total_global = df_admin_edit["Importe ($)"].sum()
         saldo_global = PRESUPUESTO_GLOBAL - total_global
         
         gm1, gm2, gm3 = st.columns(3)
@@ -250,22 +253,29 @@ else:
         gm2.metric("Total Solicitado General", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
         gm3.metric("Saldo Global Restante", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
         
+        if total_global > PRESUPUESTO_GLOBAL:
+            st.error(f"❌ Exceso de presupuesto por **${abs(saldo_global):,.2f} MXN**.")
+        elif total_global == PRESUPUESTO_GLOBAL:
+            st.success("✅ Presupuesto al 100% ($3,800.00 MXN).")
+        else:
+            st.warning(f"ℹ️ Saldo restante por asignar: **${saldo_global:,.2f} MXN**.")
+        
         if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
             with st.spinner("Actualizando Google Sheets..."):
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
                     st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
                 else:
-                    st.error("❌ Error al guardar.")
+                    st.error("❌ Error al guardar en Google Sheets.")
 
     with tab_saldos:
         st.subheader("Estado Presupuestal por Solicitante")
         
         resumen_solicitantes = []
         for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
-            filas_sol = df_admin_edit[df_admin_edit["Solicita"] == sol]
-            gastado = filas_sol["Importe"].sum()
+            filas_sol = df_admin_edit[df_admin_edit["Solicitante"] == sol]
+            gastado = filas_sol["Importe ($)"].sum()
             restante = p_base - gastado
-            unidades_cargando = len(filas_sol[filas_sol["Importe"] > 0])
+            unidades_cargando = len(filas_sol[filas_sol["Importe ($)"] > 0])
             
             resumen_solicitantes.append({
                 "Solicitante": sol,
