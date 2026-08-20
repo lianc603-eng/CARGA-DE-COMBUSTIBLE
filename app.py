@@ -66,7 +66,7 @@ def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)[cite: 1]
+                return json.load(f)
         except Exception:
             pass
     return {"desbloqueo_horario": False}
@@ -150,6 +150,18 @@ def guardar_en_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         return res.status_code == 200
     except Exception as e:
         st.error(f"Error al enviar datos: {e}")
+        return False
+
+def archivar_en_sheets_nube(registro_obj):
+    payload = {
+        "accion": "archivar_historico",
+        "registro": registro_obj
+    }
+    try:
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=15)
+        return res.status_code == 200
+    except Exception as e:
+        st.error(f"Error al respaldar histórico en Google Sheets: {e}")
         return False
 
 # ==========================================
@@ -574,7 +586,6 @@ else:
         st.markdown("### 🔍 Sección 2: Carga Real y Conciliación")
         st.caption("Captura el importe comprobado para conciliar y guardar en Sheets:")
         
-        # Tabla sin la columna Operador que Cargó
         df_real_edit = st.data_editor(
             df_actual.copy(),
             use_container_width=True,
@@ -601,7 +612,7 @@ else:
                     else:
                         st.error("❌ Error al guardar.")
         with btn_c2:
-            if st.button("📁 Archivar en Histórico Semanal", type="secondary", use_container_width=True):
+            if st.button("📁 Archivar en Histórico Semanal (Nube y Local)", type="secondary", use_container_width=True):
                 cargas_finales = df_real_edit[df_real_edit["Importe_Real"] > 0].copy()
                 if cargas_finales.empty:
                     st.warning("No hay registros mayores a $0 para archivar.")
@@ -609,7 +620,25 @@ else:
                     historial = leer_historico()
                     folio = f"CARGA-{f_prog.strftime('%Y%m%d')}-{len(historial)+1}"
                     
+                    detalle_texto_lista = []
+                    for _, r_c in cargas_finales.iterrows():
+                        detalle_texto_lista.append(f"{r_c['Operador_Sol']} ({r_c['Vehículo']} ${r_c['Importe_Real']:,.2f})")
+                    detalle_texto = "; ".join(detalle_texto_lista)
+                    
                     registro_cierre = {
+                        "folio": folio,
+                        "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
+                        "fecha_prog": f_prog.strftime("%d/%m/%Y"),
+                        "fecha_registro": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                        "total_solicitado": float(total_global_sol),
+                        "total_ejercido": float(total_global_real),
+                        "ahorro": float(saldo_global_disponible),
+                        "total_vehiculos": int(len(cargas_finales)),
+                        "detalle_texto": detalle_texto
+                    }
+                    
+                    # 1. Guardar en JSON local
+                    registro_cierre_local = {
                         "folio": folio,
                         "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
                         "fecha_programacion": f_prog.strftime("%d/%m/%Y"),
@@ -620,9 +649,14 @@ else:
                         "total_vehiculos": int(len(cargas_finales)),
                         "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador_Sol", "Importe_Real"]].to_dict(orient="records")
                     }
-                    historial.insert(0, registro_cierre)
+                    historial.insert(0, registro_cierre_local)
                     guardar_historico(historial)
-                    st.success(f"✅ ¡Folio **{folio}** archivado exitosamente!")
+                    
+                    # 2. Respaldar en la pestaña 'historico' de Google Sheets
+                    with st.spinner("Respaldando en la pestaña 'historico' de Google Sheets..."):
+                        archivar_en_sheets_nube(registro_cierre)
+                    
+                    st.success(f"✅ ¡Folio **{folio}** archivado y respaldado en Google Sheets con éxito!")
                     st.rerun()
 
     # ==========================================
@@ -639,12 +673,12 @@ else:
             for h in historial_registros:
                 filas_resumen_hist.append({
                     "Folio": h["folio"],
-                    "Fecha Programada": h["fecha_programacion"],
+                    "Fecha Programada": h.get("fecha_programacion", h.get("fecha_prog", "")),
                     "Fecha Elaboró": h["fecha_elaboro"],
                     "Vehículos": f"{h['total_vehiculos']} uds",
                     "Total Ejercido ($)": h["total_ejercido"],
-                    "Ahorro / Remanente ($)": h["ahorro_remanente"],
-                    "Fecha de Archivo": h["fecha_registro_sistema"]
+                    "Ahorro / Remanente ($)": h.get("ahorro_remanente", h.get("ahorro", 0.0)),
+                    "Fecha de Archivo": h.get("fecha_registro_sistema", h.get("fecha_registro", ""))
                 })
             
             df_hist_resumen = pd.DataFrame(filas_resumen_hist)
@@ -664,10 +698,10 @@ else:
             folio_sel = st.selectbox("Selecciona un folio:", folios_disponibles)
             registro_sel = next((h for h in historial_registros if h["folio"] == folio_sel), None)
             
-            if registro_sel:
+            if registro_sel and "detalle" in registro_sel:
                 col_h1, col_h2, col_h3 = st.columns(3)
                 col_h1.metric("Total Ejercido", f"${registro_sel['total_ejercido']:,.2f}")
-                col_h2.metric("Ahorro / Remanente", f"${registro_sel['ahorro_remanente']:,.2f}")
+                col_h2.metric("Ahorro / Remanente", f"${registro_sel.get('ahorro_remanente', 0.0):,.2f}")
                 col_h3.metric("Vehículos que Cargaron", f"{registro_sel['total_vehiculos']} unidades")
                 
                 df_detalle_folio = pd.DataFrame(registro_sel["detalle"])
