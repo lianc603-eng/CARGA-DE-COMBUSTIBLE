@@ -58,7 +58,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# --- GESTIÓN DE CONFIGURACIÓN Y MENSAJES ---
+# --- PERSISTENCIA DE CONFIGURACIÓN Y AVISOS ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -294,7 +294,6 @@ if df_actual.empty:
 # 3. VISTA SOLICITANTE (TARJETAS MÓVILES + AVISOS)
 # ==========================================
 if not es_admin:
-    # Despliegue de avisos dirigidos al solicitante o generales
     lista_avisos = leer_avisos()
     mis_avisos = [a for a in lista_avisos if a["destinatario"] in ["TODOS", usuario_efectivo]]
     
@@ -520,7 +519,6 @@ else:
                 else:
                     st.error("❌ Error al actualizar los registros.")
 
-    # NUEVO: Pestaña de Centro de Avisos y Notificaciones
     with tab_avisos:
         st.markdown("##### 📢 Publicar Comunicados y Mensajes Personalizados")
         
@@ -532,7 +530,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje o Instrucción:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar la carga...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje o Instrucción:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar la carga...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -593,8 +591,25 @@ else:
                     st.rerun()
 
     with tab_mantenimiento:
-        st.markdown("##### 🛠️ Control de Horarios y Simulación de Pruebas")
+        st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza de Cargas")
         
+        # Botón de Limpieza y Reinicio de Cargas a $0.00
+        with st.container(border=True):
+            st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas")
+            st.write("Esta acción borra los nombres de los encargados y regresa los importes a **$0.00** en Google Sheets, restaurando el presupuesto disponible al 100%.")
+            
+            if st.button("🗑️ Limpiar Todo y Restablecer a $0.00", type="secondary", use_container_width=True):
+                df_limpio = df_actual.copy()
+                df_limpio["Operador / Encargado"] = ""
+                df_limpio["Importe ($)"] = 0.0
+                
+                with st.spinner("Limpiando registros en Google Sheets..."):
+                    if guardar_en_sheets(df_limpio, f_elab, f_prog):
+                        st.success("✅ Sistema reiniciado: todas las unidades volvieron a $0.00.")
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al reiniciar datos en Google Sheets.")
+
         with st.container(border=True):
             st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
             estado_actual_toggle = config_sistema.get("desbloqueo_horario", False)
