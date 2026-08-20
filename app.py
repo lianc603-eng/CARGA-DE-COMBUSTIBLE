@@ -28,7 +28,6 @@ PRESUPUESTO_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# Textos institucionales idénticos a tu hoja FORMATO
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
@@ -62,7 +61,7 @@ def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+                return json.load(f)[cite: 1]
         except Exception:
             pass
     return {"desbloqueo_horario": False}
@@ -357,7 +356,7 @@ if not es_admin:
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación y Descarga Oficial")
+    st.subheader("⚙️ Panel de Consolidación, Auditoría y Descarga")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -365,9 +364,10 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_cargas_activas, tab_edicion, tab_mantenimiento = st.tabs([
+    tab_saldos, tab_cargas_activas, tab_confirmacion, tab_edicion, tab_mantenimiento = st.tabs([
         "📊 Monitoreo de Saldos por Área",
-        "📄 Solicitud Final (Solo Vehículos que Cargan)", 
+        "📄 Solicitud Final (Solo con Carga)", 
+        "✅ Auditoría y Confirmación Real",
         "✏️ Editor General de Unidades",
         "🛠️ Modo Pruebas y Mantenimiento"
     ])
@@ -398,7 +398,7 @@ else:
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
         c_m1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
         c_m2.metric("Total Distribuido", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c_m3.metric("Saldo Disponible", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
+        c_m3.metric("Saldo Disponible Global", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
         c_m4.metric("Bolsa Comodín", "$200.00")
         
         st.dataframe(
@@ -450,6 +450,47 @@ else:
                     mime="application/pdf",
                     use_container_width=True
                 )
+
+    # NUEVA PESTAÑA: Auditoría y Confirmación Post-Carga
+    with tab_confirmacion:
+        st.markdown("##### ✅ Validación y Conciliación de Cargas Realizadas")
+        st.caption("Verifica si las unidades cargaron su monto completo. Si una unidad no cargó o cargó menos, ajusta el monto real para recalcular automáticamente los saldos disponibles:")
+        
+        df_auditoria = df_actual.copy()
+        
+        # Editor específico de confirmación
+        df_audit_edit = st.data_editor(
+            df_auditoria,
+            use_container_width=True,
+            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad"],
+            column_config={
+                "Solicitante": st.column_config.TextColumn("Área / Solicitante"),
+                "Vehículo": st.column_config.TextColumn("Vehículo"),
+                "Placa": st.column_config.TextColumn("Placas"),
+                "Operador / Encargado": st.column_config.TextColumn("Operador"),
+                "Importe ($)": st.column_config.NumberColumn("Monto Realmente Cargado ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None, "Actividad": None
+            },
+            hide_index=True,
+            key="editor_auditoria"
+        )
+        
+        total_real_ejercido = df_audit_edit["Importe ($)"].sum()
+        remanente_recuperado = PRESUPUESTO_GLOBAL - total_real_ejercido
+        
+        st.markdown("---")
+        ar1, ar2, ar3 = st.columns(3)
+        ar1.metric("Total Real Ejercido", f"${total_real_ejercido:,.2f}")
+        ar2.metric("Saldo No Ejercido / Recuperado", f"${remanente_recuperado:,.2f}", delta_color="normal")
+        ar3.metric("Unidades con Carga Real", f"{len(df_audit_edit[df_audit_edit['Importe ($)'] > 0])} unidades")
+        
+        if st.button("💾 Confirmar Cargas Reales y Guardar Registro Final", type="primary", use_container_width=True):
+            with st.spinner("Actualizando y recalculando saldos en Google Sheets..."):
+                if guardar_en_sheets(df_audit_edit, f_elab, f_prog):
+                    st.success("✅ Cargas confirmadas. Hoja de cálculo y saldos disponibles actualizados correctamente.")
+                    st.rerun()
+                else:
+                    st.error("❌ Error al actualizar los registros.")
 
     with tab_edicion:
         df_admin_edit = st.data_editor(
