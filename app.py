@@ -5,6 +5,7 @@ import pytz
 import requests
 import json
 import io
+import os
 import openpyxl
 from fpdf import FPDF
 
@@ -13,6 +14,7 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 PRESUPUESTO_GLOBAL = 3800.00
 HORA_LIMITE = time(15, 0)  # 3:00 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
+CONFIG_FILE = "config_sistema.json"
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
@@ -50,6 +52,22 @@ USUARIOS_PASSWORD = {
     "PEREZ MAZIN CARLOS EDUARDO": "notif123",
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
+
+# Funciones de Configuración de Pruebas / Mantenimiento
+def leer_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"desbloqueo_horario": False}
+
+def guardar_config(cfg):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(cfg, f)
+
+config_sistema = leer_config()
 
 def obtener_datos_sheets():
     try:
@@ -192,6 +210,8 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
 # ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
+if "vista_simulada" not in st.session_state:
+    st.session_state.vista_simulada = None
 
 if st.session_state.usuario_logueado is None:
     st.title("⛽ Solicitud de Combustible")
@@ -206,31 +226,53 @@ if st.session_state.usuario_logueado is None:
             if st.form_submit_button("Entrar", use_container_width=True):
                 if pwd == USUARIOS_PASSWORD.get(usr):
                     st.session_state.usuario_logueado = usr
+                    st.session_state.vista_simulada = None
                     st.rerun()
                 else:
                     st.error("Contraseña incorrecta.")
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y CONTROL DE HORARIO
+# 2. ENCABEZADO Y REVISIÓN DE HORARIO
 # ==========================================
-usuario = st.session_state.usuario_logueado
-es_admin = (usuario == "LIAN")
+usuario_real = st.session_state.usuario_logueado
+es_admin_real = (usuario_real == "LIAN")
+
+# Si el admin está simulando a un usuario para pruebas
+usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.session_state.vista_simulada) else usuario_real
+es_admin = (usuario_efectivo == "LIAN")
 
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
-sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin
+
+# Desbloqueo condicional si el modo de prueba/override está activo
+desbloqueo_activo = config_sistema.get("desbloqueo_horario", False)
+sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2 = st.columns([3, 1])
 with c1:
     st.title("⛽ Control de Combustible")
-    st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario}**")
-    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | Límite: **3:00 PM**")
+    if es_admin_real and st.session_state.vista_simulada:
+        st.warning(f"🧪 **MODO DE PRUEBA ACTIVO**: Simulando vista como **{usuario_efectivo}**")
+    else:
+        st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_efectivo}**")
+        
+    estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado"
+    if desbloqueo_activo:
+        estado_horario += " (⚡ Desbloqueo temporal de Admin activo)"
+    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
+
 with c2:
     st.write("")
-    if st.button("🚪 Salir", use_container_width=True):
-        st.session_state.usuario_logueado = None
-        st.rerun()
+    if es_admin_real and st.session_state.vista_simulada:
+        if st.button("⬅️ Regresar a Admin", use_container_width=True):
+            st.session_state.vista_simulada = None
+            st.rerun()
+    else:
+        if st.button("🚪 Salir", use_container_width=True):
+            st.session_state.usuario_logueado = None
+            st.session_state.vista_simulada = None
+            st.rerun()
 
 df_actual = obtener_datos_sheets()
 
@@ -242,15 +284,14 @@ if df_actual.empty:
 # 3. VISTA SOLICITANTE (TARJETAS MÓVILES)
 # ==========================================
 if not es_admin:
-    presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario, 0.00)
-    df_solicitante = df_actual[df_actual["Solicitante"] == usuario].copy()
+    presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
+    df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
     if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO (3:00 PM)**. Captura deshabilitada.")
+        st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:00 PM)**. La captura está deshabilitada.")
     else:
         st.info("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
     
-    # Formulario con tarjetas individuales por vehículo
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
         
@@ -292,7 +333,6 @@ if not es_admin:
         total_capturado = df_edit_movil["Importe ($)"].sum()
         saldo_restante = presupuesto_propio - total_capturado
         
-        # Barra resumen de saldos al pie del formulario
         st.divider()
         m1, m2, m3 = st.columns(3)
         m1.metric("Presupuesto", f"${presupuesto_propio:,.2f}")
@@ -327,10 +367,11 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_cargas_activas, tab_edicion = st.tabs([
+    tab_saldos, tab_cargas_activas, tab_edicion, tab_mantenimiento = st.tabs([
         "📊 Monitoreo de Saldos por Área",
         "📄 Solicitud Final (Solo Vehículos que Cargan)", 
-        "✏️ Editor General de Unidades"
+        "✏️ Editor General de Unidades",
+        "🛠️ Modo Pruebas y Mantenimiento"
     ])
 
     df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
@@ -429,3 +470,32 @@ else:
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
                     st.success("✅ Datos sincronizados correctamente.")
                     st.rerun()
+
+    # NUEVO: Pestaña de Control de Pruebas y Desbloqueo
+    with tab_mantenimiento:
+        st.markdown("##### 🛠️ Control de Horarios y Simulación de Pruebas")
+        st.caption("Estas herramientas te permiten modificar parámetros del sistema y testear la experiencia de cualquier solicitante:")
+        
+        with st.container(border=True):
+            st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
+            st.write("Si activas este interruptor, los solicitantes podrán capturar o editar fuera de las 3:00 PM para pruebas o registros tardíos.")
+            
+            estado_actual_toggle = config_sistema.get("desbloqueo_horario", False)
+            toggle_horario = st.toggle("Habilitar captura 24/7 (Desactivar límite de 3:00 PM)", value=estado_actual_toggle)
+            
+            if toggle_horario != estado_actual_toggle:
+                config_sistema["desbloqueo_horario"] = toggle_horario
+                guardar_config(config_sistema)
+                st.toast("Configuración de horario actualizada.", icon="⏰")
+                st.rerun()
+
+        with st.container(border=True):
+            st.subheader("🧪 Probar Vista Móvil de Solicitante")
+            st.write("Selecciona a cualquier usuario para ver exactamente cómo se ve su interfaz en celular y simular una carga:")
+            
+            usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
+            solicitante_a_testear = st.selectbox("Selecciona al solicitante a simular:", usuarios_para_test)
+            
+            if st.button("👁️ Entrar a Modo Simulación", type="secondary", use_container_width=True):
+                st.session_state.vista_simulada = solicitante_a_testear
+                st.rerun()
