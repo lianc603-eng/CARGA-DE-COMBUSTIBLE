@@ -5,7 +5,6 @@ import pytz
 import requests
 import json
 import io
-import os
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
@@ -23,7 +22,6 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 HABILITAR_CAPTURA_24_7 = True  
 
 CONFIG_FILE = "config_sistema.json"
-HISTORICO_FILE = "historico_cargas.json"
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
@@ -41,10 +39,12 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
+# Mapeo exacto de las filas 12 a la 24 de tu formato oficial
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
     14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    15: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
     16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
     17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
     18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
@@ -65,39 +65,6 @@ USUARIOS_PASSWORD = {
     "PEREZ MAZIN CARLOS EDUARDO": "notif123",
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
-
-# --- PERSISTENCIA LOCAL ---
-def leer_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"desbloqueo_horario": True}
-
-def guardar_config(cfg):
-    try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(cfg, f)
-    except Exception:
-        pass
-
-def leer_historico():
-    if os.path.exists(HISTORICO_FILE):
-        try:
-            with open(HISTORICO_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return []
-
-def guardar_historico(hist):
-    try:
-        with open(HISTORICO_FILE, "w") as f:
-            json.dump(hist, f)
-    except Exception:
-        pass
 
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
@@ -174,130 +141,140 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# GENERADORES DE ARCHIVOS OFICIALES
+# GENERADOR DE EXCEL OFICIAL CON FILAS OCULTAS
 # ==========================================
-def generar_excel_completo(df_datos, f_elab, f_prog):
+def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     
-    fuente_titulo = Font(name="Calibri", size=12, bold=True, color="1F497D")
-    fuente_sub = Font(name="Calibri", size=10, bold=True)
-    fuente_header_sol = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
-    fuente_header_real = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
-    fuente_bold = Font(name="Calibri", size=9, bold=True)
-    fuente_normal = Font(name="Calibri", size=9)
-    
-    fill_sol = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-    fill_real = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
-    fill_total = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid")
-    
-    border_fino = Border(
-        left=Side(style='thin', color='DDDDDD'),
-        right=Side(style='thin', color='DDDDDD'),
-        top=Side(style='thin', color='DDDDDD'),
-        bottom=Side(style='thin', color='DDDDDD')
-    )
-
     ws = wb.active
-    ws.title = "CONTROL COMBUSTIBLE"
+    ws.title = "carga"
     ws.views.sheetView[0].showGridLines = True
     
-    ws["B2"] = "H. AYUNTAMIENTO DE CAMPECHE"
-    ws["B2"].font = fuente_titulo
-    ws["B3"] = "DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE"
-    ws["B3"].font = fuente_sub
+    fuente_titulo = Font(name="Calibri", size=10, bold=True)
+    fuente_sub = Font(name="Calibri", size=9, bold=True)
+    fuente_header = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+    fuente_bold = Font(name="Calibri", size=9, bold=True)
+    fuente_datos = Font(name="Calibri", size=8)
     
-    ws["F5"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
-    ws["F6"] = f"Programación: {f_prog.strftime('%d/%m/%Y')}"
-    ws["F5"].font = fuente_sub
-    ws["F6"].font = fuente_sub
+    fill_header_azul = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    
+    border_cuadricula = Border(
+        left=Side(style='thin', color='000000'),
+        right=Side(style='thin', color='000000'),
+        top=Side(style='thin', color='000000'),
+        bottom=Side(style='thin', color='000000')
+    )
 
-    headers = [
-        "", "ENCARGADO (SOLICITADO)", "VEHÍCULO", "PLACA", "RÉGIMEN", "IMPORTE SOL. ($)", "TIPO", "ACTIVIDAD",
-        "", "VEHÍCULO", "PLACA", "IMPORTE REAL ($)", "DIFERENCIA ($)", "% EJERCIDO"
+    # 1. Cabecera Institucional
+    ws["D2"] = "H. AYUNTAMIENTO DE CAMPECHE"
+    ws["D2"].font = fuente_titulo
+    ws["D2"].alignment = Alignment(horizontal="center", vertical="center")
+    
+    ws["B4"] = "Unidad:"
+    ws["B4"].font = fuente_sub
+    ws["C4"] = "DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE"
+    ws["C4"].font = fuente_sub
+    
+    ws["B5"] = "Subdireccion:"
+    ws["B5"].font = fuente_sub
+    
+    ws["F6"] = "Elaboro:"
+    ws["F6"].font = fuente_sub
+    ws["F6"].alignment = Alignment(horizontal="right")
+    ws["G6"] = f_elab.strftime("%d/%m/%Y")
+    ws["G6"].font = fuente_sub
+    
+    ws["E7"] = "Programacion para el dia:"
+    ws["E7"].font = fuente_sub
+    ws["E7"].alignment = Alignment(horizontal="right")
+    ws["G7"] = f_prog.strftime("%d/%m/%Y")
+    ws["G7"].font = fuente_sub
+
+    # 2. Encabezados de Tabla Oficial (Fila 11)
+    headers_oficiales = [
+        (2, "NOMBRE DEL\nENCARGADO"),
+        (3, "VEHÍCULO"),
+        (4, "PLACA"),
+        (5, "OFICIAL /\nCOMODATO"),
+        (6, "LITROS"),
+        (7, "IMPORTE"),
+        (8, "MAGNA / DIESEL"),
+        (9, "ACTIVIDAD")
     ]
-    ws.append([])
-    ws.append(headers)
     
-    for c_idx in range(2, 9):
-        cell = ws.cell(row=8, column=c_idx)
-        cell.font = fuente_header_sol
-        cell.fill = fill_sol
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for col_num, h_text in headers_oficiales:
+        cell = ws.cell(row=11, column=col_num, value=h_text)
+        cell.font = fuente_header
+        cell.fill = fill_header_azul
+        cell.border = border_cuadricula
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[11].height = 28
+
+    # 3. Llenado de Filas 12 a 24
+    for r_num in range(12, 25):
+        row_info = df_datos[df_datos["row"] == r_num]
         
-    for c_idx in range(10, 15):
-        cell = ws.cell(row=8, column=c_idx)
-        cell.font = fuente_header_real
-        cell.fill = fill_real
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        
-    start_row = 9
-    for i, row in df_datos.iterrows():
-        curr_row = start_row + i
-        f_dif = f"=F{curr_row}-L{curr_row}"
-        f_pct = f"=IF(F{curr_row}>0, L{curr_row}/F{curr_row}, 0)"
-        
-        ws.append([
-            "",
-            row["Operador_Sol"],
-            row["Vehículo"],
-            row["Placa"],
-            "OFICIAL",
-            float(row["Importe_Sol"]),
-            "MAGNA",
-            row["Actividad"],
-            "",
-            row["Vehículo"],
-            row["Placa"],
-            float(row["Importe_Real"]),
-            f_dif,
-            f_pct
-        ])
-        
-        for c in range(2, 15):
-            if c == 9:
-                continue
-            celda = ws.cell(row=curr_row, column=c)
-            celda.font = fuente_normal
-            celda.border = border_fino
-            if c in [6, 12, 13]:
-                celda.number_format = '$#,##0.00'
-                celda.alignment = Alignment(horizontal="right")
-            elif c == 14:
-                celda.number_format = '0.0%'
-                celda.alignment = Alignment(horizontal="center")
-            elif c in [4, 5, 7, 11]:
-                celda.alignment = Alignment(horizontal="center")
-                
-    end_row = start_row + len(df_datos) - 1
-    total_row = end_row + 1
-    
-    ws.cell(row=total_row, column=5, value="TOTAL SOLICITADO:").font = fuente_bold
-    ws.cell(row=total_row, column=5).alignment = Alignment(horizontal="right")
-    c_tot_sol = ws.cell(row=total_row, column=6, value=f"=SUM(F{start_row}:F{end_row})")
-    c_tot_sol.font = fuente_bold
-    c_tot_sol.number_format = '$#,##0.00'
-    c_tot_sol.fill = fill_total
-    
-    ws.cell(row=total_row, column=11, value="TOTAL REAL:").font = fuente_bold
-    ws.cell(row=total_row, column=11).alignment = Alignment(horizontal="right")
-    c_tot_real = ws.cell(row=total_row, column=12, value=f"=SUM(L{start_row}:L{end_row})")
-    c_tot_real.font = fuente_bold
-    c_tot_real.number_format = '$#,##0.00'
-    c_tot_real.fill = fill_total
-    
-    c_tot_dif = ws.cell(row=total_row, column=13, value=f"=F{total_row}-L{total_row}")
-    c_tot_dif.font = fuente_bold
-    c_tot_dif.number_format = '$#,##0.00'
-    c_tot_dif.fill = fill_total
-    
-    for col in ws.columns:
-        col_letter = get_column_letter(col[0].column)
-        if col_letter in ['A', 'I']:
-            ws.column_dimensions[col_letter].width = 3
+        if not row_info.empty:
+            item = row_info.iloc[0]
+            op_nombre = str(item["Operador_Sol"]).strip()
+            veh = str(item["Vehículo"]).strip()
+            plc = str(item["Placa"]).strip()
+            imp_val = float(item["Importe_Sol"])
+            act_text = str(item["Actividad"]).strip()
         else:
-            ws.column_dimensions[col_letter].width = 22
+            op_nombre = ""
+            veh = MAPEO_SOLICITANTES[r_num]["vehiculo"]
+            plc = MAPEO_SOLICITANTES[r_num]["placa"]
+            imp_val = 0.0
+            act_text = MAPEO_SOLICITANTES[r_num]["actividad"]
+
+        ws.cell(row=r_num, column=2, value=op_nombre).alignment = Alignment(horizontal="left", vertical="center")
+        ws.cell(row=r_num, column=3, value=veh).alignment = Alignment(horizontal="left", vertical="center")
+        ws.cell(row=r_num, column=4, value=plc).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=r_num, column=5, value="OFICIAL").alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=r_num, column=6, value="").alignment = Alignment(horizontal="center", vertical="center")
+        
+        c_imp = ws.cell(row=r_num, column=7, value=imp_val)
+        c_imp.number_format = '$#,##0.00'
+        c_imp.alignment = Alignment(horizontal="right", vertical="center")
+        
+        ws.cell(row=r_num, column=8, value="MAGNA").alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=r_num, column=9, value=act_text).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        for col_i in range(2, 10):
+            c_est = ws.cell(row=r_num, column=col_i)
+            c_est.font = fuente_datos
+            c_est.border = border_cuadricula
             
+        ws.row_dimensions[r_num].height = 24
+        
+        # Ocultar fila si no tiene importe asignado
+        if imp_val == 0.0:
+            ws.row_dimensions[r_num].hidden = True
+
+    # 4. Fila 25: TOTAL
+    c_lbl_tot = ws.cell(row=25, column=6, value="TOTAL")
+    c_lbl_tot.font = fuente_bold
+    c_lbl_tot.alignment = Alignment(horizontal="right", vertical="center")
+    c_lbl_tot.border = border_cuadricula
+    
+    c_val_tot = ws.cell(row=25, column=7, value="=SUM(G12:G24)")
+    c_val_tot.font = fuente_bold
+    c_val_tot.number_format = '$#,##0.00'
+    c_val_tot.alignment = Alignment(horizontal="right", vertical="center")
+    c_val_tot.border = border_cuadricula
+    
+    for c_rest in [2, 3, 4, 5, 8, 9]:
+        ws.cell(row=25, column=c_rest).border = border_cuadricula
+
+    # Anchos de columna exactos
+    anchos_cols = {
+        'A': 3, 'B': 24, 'C': 16, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52
+    }
+    for col_letra, ancho in anchos_cols.items():
+        ws.column_dimensions[col_letra].width = ancho
+
     wb.save(output)
     return output.getvalue()
 
@@ -388,7 +365,6 @@ usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.sess
 es_admin = (usuario_efectivo == "LIAN")
 
 ahora_local = datetime.now(ZONA_HORARIA)
-hora_actual = ahora_local.time()
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
 with c1:
@@ -508,12 +484,11 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_historico, tab_mantenimiento = st.tabs([
+    tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
         "📊 Monitoreo de Saldos por Área",
         "📄 Solicitud Final (Solo Vehículos que Cargan)",
         "🛵 Mi Carga (LIAN)",
         "✅ Auditoría y Carga Real",
-        "📁 Histórico de Cargas",
         "🛠️ Modo Pruebas"
     ])
 
@@ -593,9 +568,9 @@ else:
             col_d1, col_d2 = st.columns(2)
             
             with col_d1:
-                excel_bytes = generar_excel_completo(df_actual, f_elab, f_prog)
+                excel_bytes = generar_excel_oficial_formato(df_actual, f_elab, f_prog)
                 st.download_button(
-                    label="📥 Descargar Reporte en Excel (.xlsx)",
+                    label="📥 Descargar Formato Oficial Excel (.xlsx)",
                     data=excel_bytes,
                     file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -651,7 +626,7 @@ else:
     # 4. AUDITORÍA Y CARGA REAL
     with tab_auditoria:
         st.markdown("##### 🔍 Conciliación y Registro de Cargas Reales Comprobadas")
-        st.caption("Captura el monto realmente cargado para calcular diferencias y remanentes:")
+        st.caption("Captura el monto realmente cargado para calcular diferencias:")
         
         df_real_edit = st.data_editor(
             df_actual.copy(),
@@ -682,89 +657,12 @@ else:
         r4.metric("Saldo Disponible Restante", f"${saldo_global_disponible:,.2f}", delta_color="normal")
         
         st.write("")
-        btn_c1, btn_c2 = st.columns(2)
-        with btn_c1:
-            if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
-                enviar_datos_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                st.success("✅ Cargas reales sincronizadas correctamente.")
-                st.rerun()
-        with btn_c2:
-            if st.button("📁 Archivar en Histórico Oficial", type="secondary", use_container_width=True):
-                cargas_finales = df_real_edit[df_real_edit["Importe_Real"] > 0].copy()
-                if cargas_finales.empty:
-                    st.warning("No hay registros mayores a $0 para archivar.")
-                else:
-                    historial = leer_historico()
-                    folio = f"CARGA-{f_prog.strftime('%Y%m%d')}-{len(historial)+1}"
-                    
-                    registro_cierre_local = {
-                        "folio": folio,
-                        "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
-                        "fecha_programacion": f_prog.strftime("%d/%m/%Y"),
-                        "fecha_registro_sistema": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
-                        "total_solicitado": float(total_global_sol),
-                        "total_ejercido": float(total_global_real),
-                        "ahorro_remanente": float(saldo_global_disponible),
-                        "total_vehiculos": int(len(cargas_finales)),
-                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador_Sol", "Importe_Real"]].to_dict(orient="records")
-                    }
-                    historial.insert(0, registro_cierre_local)
-                    guardar_historico(historial)
-                    st.success(f"✅ ¡Folio **{folio}** archivado exitosamente!")
-                    st.rerun()
+        if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
+            enviar_datos_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog)
+            st.success("✅ Cargas reales sincronizadas correctamente en Google Sheets.")
+            st.rerun()
 
-    # 5. HISTÓRICO DE CARGAS
-    with tab_historico:
-        st.markdown("##### 📁 Registro Histórico de Cargas Semanales Finalizadas")
-        historial_registros = leer_historico()
-        
-        if not historial_registros:
-            st.info("Aún no hay registros de cargas archivadas en el histórico.")
-        else:
-            filas_resumen_hist = []
-            for h in historial_registros:
-                filas_resumen_hist.append({
-                    "Folio": h["folio"],
-                    "Fecha Programada": h.get("fecha_programacion", h.get("fecha_prog", "")),
-                    "Fecha Elaboró": h["fecha_elaboro"],
-                    "Vehículos": f"{h['total_vehiculos']} uds",
-                    "Total Ejercido ($)": h["total_ejercido"],
-                    "Ahorro / Remanente ($)": h.get("ahorro_remanente", h.get("ahorro", 0.0)),
-                    "Fecha de Archivo": h.get("fecha_registro_sistema", h.get("fecha_registro", ""))
-                })
-            
-            df_hist_resumen = pd.DataFrame(filas_resumen_hist)
-            st.dataframe(
-                df_hist_resumen,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Total Ejercido ($)": st.column_config.NumberColumn(format="$%.2f"),
-                    "Ahorro / Remanente ($)": st.column_config.NumberColumn(format="$%.2f"),
-                }
-            )
-            
-            st.divider()
-            st.markdown("##### 🔍 Detalle Individual por Folio / Semana")
-            folios_disponibles = [h["folio"] for h in historial_registros]
-            folio_sel = st.selectbox("Selecciona un folio:", folios_disponibles)
-            registro_sel = next((h for h in historial_registros if h["folio"] == folio_sel), None)
-            
-            if registro_sel and "detalle" in registro_sel:
-                col_h1, col_h2, col_h3 = st.columns(3)
-                col_h1.metric("Total Ejercido", f"${registro_sel['total_ejercido']:,.2f}")
-                col_h2.metric("Ahorro / Remanente", f"${registro_sel.get('ahorro_remanente', 0.0):,.2f}")
-                col_h3.metric("Vehículos que Cargaron", f"{registro_sel['total_vehiculos']} unidades")
-                
-                df_detalle_folio = pd.DataFrame(registro_sel["detalle"])
-                st.dataframe(
-                    df_detalle_folio,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"Importe_Real": st.column_config.NumberColumn("Importe Real ($)", format="$%.2f")}
-                )
-
-    # 6. MODO PRUEBAS Y MANTENIMIENTO
+    # 5. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
@@ -785,8 +683,8 @@ else:
                 st.rerun()
 
         with st.container(border=True):
-            st.subheader("⏰ Estado de Captura de Horario")
-            st.success("🟢 Modo de captura 24/7 ACTIVO para todas las áreas (Límite de 3:00 PM suspendido para pruebas).")
+            st.subheader("⏰ Horario de Captura")
+            st.success("🟢 Horario 24/7 ACTIVO para todas las áreas.")
 
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
