@@ -13,34 +13,31 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Presupuestos asignados por solicitante único (Total = $3,800.00)
+# Presupuestos base fijos autorizados (Suma = $3,600.00 | Restante de $200.00 a libre asignación de LIAN)
 PRESUPUESTO_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": 200.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "NOEL CHAN": 1050.00,
+    "NOEL CHAN": 850.00,
     "LIAN": 150.00,
-    "RENAN/HELDER": 500.00,
     "QUEVEDO": 1500.00,
+    "RENAN/HELDER": 500.00,
 }
 
-# Mapeo oficial de vehículos por fila (filas 12 a 26 de FORMATO.xlsx)
+# Catálogo exacto de vehículos y placas según tu imagen oficial
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8"},
-    15: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8"},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7"},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8"},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7"},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8"},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7"},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8"},
-    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7"},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7"},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7"},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU8"},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "88GWU7"},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "88GWU8"},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU7"},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8"},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7"},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8"},
+    22: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7"},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B"},
     23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C"},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B"},
-    25: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA NISSAN", "placa": "CN2632B"},
-    26: {"solicita": "QUEVEDO", "vehiculo": "MOTOSIERRA 310", "placa": "00611-23-MOT-49234"},
 }
 
 USUARIOS_PASSWORD = {
@@ -121,7 +118,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y CONTROL DE HORARIO
+# 2. ENCABEZADO Y REVISIÓN DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -214,7 +211,7 @@ if not es_admin:
             st.warning("Aún no se ha asignado presupuesto a ninguna unidad.")
             
         st.markdown("---")
-        st.markdown(f"**Resumen de cuenta:** Presupuesto: **${presupuesto_propio:,.2f}** | Asignado: **${total_solicitado:,.2f}** | Saldo Restante: **${saldo_disponible:,.2f}**")
+        st.markdown(f"**Resumen:** Presupuesto Base: **${presupuesto_propio:,.2f}** | Total Asignado: **${total_solicitado:,.2f}** | Saldo: **${saldo_disponible:,.2f}**")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
@@ -236,7 +233,7 @@ else:
             use_container_width=True,
             disabled=["row", "Vehículo", "Placa"],
             column_config={
-                "Solicitante": st.column_config.TextColumn("Solicitante", disabled=True),
+                "Solicitante": st.column_config.TextColumn("Solicitante", disabled=False),
                 "Operador / Encargado": st.column_config.TextColumn("Operador / Encargado"),
                 "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
                 "row": None
@@ -248,17 +245,18 @@ else:
         total_global = df_admin_edit["Importe ($)"].sum()
         saldo_global = PRESUPUESTO_GLOBAL - total_global
         
-        gm1, gm2, gm3 = st.columns(3)
-        gm1.metric("Presupuesto Global Autorizado", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        gm2.metric("Total Solicitado General", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        gm3.metric("Saldo Global Restante", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
+        gm1, gm2, gm3, gm4 = st.columns(4)
+        gm1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        gm2.metric("Presupuesto Base", "$3,600.00")
+        gm3.metric("Total Distribuido", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        gm4.metric("Saldo Disponible Total", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
         
         if total_global > PRESUPUESTO_GLOBAL:
             st.error(f"❌ Exceso de presupuesto por **${abs(saldo_global):,.2f} MXN**.")
         elif total_global == PRESUPUESTO_GLOBAL:
-            st.success("✅ Presupuesto al 100% ($3,800.00 MXN).")
+            st.success("✅ Presupuesto distribuido al 100% ($3,800.00 MXN con reserva asignada).")
         else:
-            st.warning(f"ℹ️ Saldo restante por asignar: **${saldo_global:,.2f} MXN**.")
+            st.info(f"ℹ️ Saldo restante disponible: **${saldo_global:,.2f} MXN** (incluye los $200 de tu bolsa comodín).")
         
         if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
             with st.spinner("Actualizando Google Sheets..."):
@@ -269,6 +267,7 @@ else:
 
     with tab_saldos:
         st.subheader("Estado Presupuestal por Solicitante")
+        st.caption("Los solicitantes tienen como base $3,600.00. Los $200.00 de reserva los asignas tú a cualquier unidad:")
         
         resumen_solicitantes = []
         for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
@@ -279,11 +278,11 @@ else:
             
             resumen_solicitantes.append({
                 "Solicitante": sol,
-                "Presupuesto Asignado": f"${p_base:,.2f}",
+                "Presupuesto Base": f"${p_base:,.2f}",
                 "Total Solicitado": f"${gastado:,.2f}",
-                "Saldo Disponible": f"${restante:,.2f}",
+                "Diferencia vs Base": f"${restante:,.2f}",
                 "Unidades con Carga": f"{unidades_cargando} unidad(es)",
-                "Estado": "✅ Exacto" if restante == 0 else ("⚠️ Excedido" if restante < 0 else "🟢 Con Saldo")
+                "Estado": "✅ En Presupuesto Base" if restante >= 0 else "⚡ Con Apoyo de Reserva ($200)"
             })
             
         df_resumen = pd.DataFrame(resumen_solicitantes)
