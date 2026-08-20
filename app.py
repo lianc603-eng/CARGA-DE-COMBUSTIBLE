@@ -6,12 +6,22 @@ import json
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
-PRESUPUESTO_OBJETIVO = 3800.00
-
-# URL de conexión con Google Apps Script
+PRESUPUESTO_GLOBAL = 3800.00
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Mapeo oficial de vehículos y solicitantes por fila (filas 12 a 26 del formato)
+# Presupuesto semanal asignado a cada solicitante según tabulador base
+PRESUPUESTO_POR_SOLICITANTE = {
+    "COB CHAVEZ NARCISO DEL JESUS": 200.00,
+    "PEREZ MAZIN CARLOS EDUARDO": 200.00,
+    "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
+    "JESUS COB": 200.00,
+    "NOEL CHAN": 850.00,
+    "LIAN": 150.00,
+    "RENAN/HELDER": 500.00,
+    "QUEVEDO": 1500.00,
+}
+
+# Mapeo oficial de vehículos por fila (filas 12 a 26 de FORMATO.xlsx)
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
@@ -30,7 +40,6 @@ MAPEO_SOLICITANTES = {
     26: {"solicita": "QUEVEDO", "vehiculo": "MOTOSIERRA 310", "placa": "00611-23-MOT-49234"},
 }
 
-# Credenciales de acceso por usuario
 USUARIOS_PASSWORD = {
     "LIAN": "admin123",
     "NOEL CHAN": "inspeccion2026",
@@ -42,7 +51,6 @@ USUARIOS_PASSWORD = {
     "JESUS COB": "notif123"
 }
 
-# Funciones de comunicación con Google Sheets
 def obtener_datos_sheets():
     try:
         res = requests.get(WEBHOOK_URL, timeout=15)
@@ -61,7 +69,7 @@ def obtener_datos_sheets():
                         item["Importe"] = 0.0
             return pd.DataFrame(datos_raw)
     except Exception as err:
-        st.error(f"Error al conectar con Google Sheets: {err}")
+        st.error(f"Error de conexión con Google Sheets: {err}")
     return pd.DataFrame()
 
 def guardar_en_sheets(registros, f_elab=None, f_prog=None):
@@ -82,18 +90,18 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         res = requests.post(WEBHOOK_URL, json=payload, timeout=15)
         return res.status_code == 200
     except Exception as e:
-        st.error(f"Error al guardar los datos: {e}")
+        st.error(f"Error al enviar datos: {e}")
         return False
 
 # ==========================================
-# 1. GESTIÓN DE SESIÓN Y LOGIN
+# 1. LOGIN
 # ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 
 if st.session_state.usuario_logueado is None:
     st.title("⛽ Sistema de Solicitud de Combustible")
-    st.caption("H. Ayuntamiento de Campeche — Dirección de Desarrollo Urbano y Medio Ambiente")
+    st.caption("Dirección de Desarrollo Urbano y Medio Ambiente")
     
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
@@ -110,14 +118,14 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y BARRA SUPERIOR
+# 2. PANEL PRINCIPAL
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
 
 c1, c2 = st.columns([4, 1])
 with c1:
-    st.title("⛽ Solicitud Semanal de Combustible")
+    st.title("⛽ Control Semanal de Combustible")
     st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario}**")
 with c2:
     st.write("")
@@ -125,85 +133,134 @@ with c2:
         st.session_state.usuario_logueado = None
         st.rerun()
 
-# Cargar los datos en tiempo real desde Google Sheets
 df_actual = obtener_datos_sheets()
 
 if df_actual.empty:
-    st.warning("Conectando con la base de datos en Google Sheets...")
+    st.warning("Cargando datos desde Google Sheets...")
     st.stop()
 
 # ==========================================
 # 3. VISTA SOLICITANTE
 # ==========================================
 if not es_admin:
-    st.info("👋 Asigna el **Nombre del Encargado** que conducirá la unidad esta semana e ingresa el **Importe ($)** correspondiente:")
-    
+    presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario, 0.00)
     df_solicitante = df_actual[df_actual["Solicita"] == usuario].copy()
     
-    df_edit = st.data_editor(
-        df_solicitante,
-        use_container_width=True,
-        disabled=["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"],
-        column_config={
-            "Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
-            "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-            "row": None, "encargado": None, "importe": None, "Solicita": None
-        },
-        hide_index=True
-    )
+    tab_solicitud, tab_resumen = st.tabs(["📝 Captura y Distribución", "📊 Resumen y Saldo de Cargas"])
     
-    st.metric("Total Solicitado por tu Área", f"${df_edit['Importe'].sum():,.2f} MXN")
-    
-    if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
-        with st.spinner("Guardando en Google Sheets..."):
-            if guardar_en_sheets(df_edit):
-                st.success("✅ ¡Datos guardados correctamente en la hoja de cálculo oficial!")
-            else:
-                st.error("❌ No se pudo guardar la información.")
+    with tab_solicitud:
+        st.caption("Captura el nombre del encargado y el importe para las unidades bajo tu cargo:")
+        
+        df_edit = st.data_editor(
+            df_solicitante,
+            use_container_width=True,
+            disabled=["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"],
+            column_config={
+                "Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
+                "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None, "encargado": None, "importe": None, "Solicita": None
+            },
+            hide_index=True,
+            key="editor_usuario"
+        )
+        
+        total_solicitado = df_edit["Importe"].sum()
+        saldo_disponible = presupuesto_propio - total_solicitado
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Presupuesto Asignado a tu Área", f"${presupuesto_propio:,.2f}")
+        m2.metric("Total Distribuido en Unidades", f"${total_solicitado:,.2f}", delta=f"{total_solicitado - presupuesto_propio:,.2f}", delta_color="inverse")
+        m3.metric("Saldo Disponible Restante", f"${saldo_disponible:,.2f}", delta_color="normal" if saldo_disponible >= 0 else "off")
+        
+        if total_solicitado > presupuesto_propio:
+            st.error(f"❌ Estás excediendo tu presupuesto autorizado por **${abs(saldo_disponible):,.2f} MXN**.")
+        elif total_solicitado == presupuesto_propio:
+            st.success("✅ Has distribuido exactamente el 100% de tu presupuesto semanal.")
+        else:
+            st.info(f"ℹ️ Tienes **${saldo_disponible:,.2f} MXN** disponibles para asignar.")
+            
+        if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
+            with st.spinner("Guardando..."):
+                if guardar_en_sheets(df_edit):
+                    st.success("✅ Solicitud guardada y sincronizada correctamente en Google Sheets.")
+                else:
+                    st.error("❌ Error al guardar en Google Sheets.")
+
+    with tab_resumen:
+        st.subheader("🔍 Desglose de Cargas Solicitadas")
+        
+        cargas_activas = df_edit[df_edit["Importe"] > 0][["Vehículo", "Placa", "Encargado", "Importe"]]
+        
+        if not cargas_activas.empty:
+            st.dataframe(cargas_activas, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Aún no has asignado presupuesto a ninguna unidad.")
+            
+        st.markdown("---")
+        st.markdown(f"**Resumen de cuenta:** Presupuesto: **${presupuesto_propio:,.2f}** | Asignado: **${total_solicitado:,.2f}** | Saldo Restante: **${saldo_disponible:,.2f}**")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Consolidación General y Control Presupuestal")
+    st.subheader("⚙️ Consolidación General y Control de Saldos por Área")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        f_elab = st.date_input("Fecha de Elaboración (Oficio)", value=date.today())
+        f_elab = st.date_input("Fecha de Elaboración", value=date.today())
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
+
+    tab_gral, tab_saldos = st.tabs(["📋 Tabla Consolidada General", "📊 Monitoreo de Presupuesto por Solicitante"])
+
+    with tab_gral:
+        df_admin_edit = st.data_editor(
+            df_actual,
+            use_container_width=True,
+            disabled=["row", "Vehículo", "Placa", "encargado", "importe"],
+            column_config={
+                "Solicita": st.column_config.TextColumn("Solicitante", disabled=True),
+                "Encargado": st.column_config.TextColumn("Operador / Encargado"),
+                "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None, "encargado": None, "importe": None
+            },
+            hide_index=True,
+            key="editor_admin"
+        )
         
-    df_admin_edit = st.data_editor(
-        df_actual,
-        use_container_width=True,
-        disabled=["row", "Vehículo", "Placa", "encargado", "importe"],
-        column_config={
-            "Solicita": st.column_config.TextColumn("Solicitante", disabled=True),
-            "Encargado": st.column_config.TextColumn("Operador / Encargado"),
-            "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-            "row": None, "encargado": None, "importe": None
-        },
-        hide_index=True
-    )
-    
-    total = df_admin_edit["Importe"].sum()
-    saldo = PRESUPUESTO_OBJETIVO - total
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Presupuesto Semanal", f"${PRESUPUESTO_OBJETIVO:,.2f}")
-    m2.metric("Total Distribuido", f"${total:,.2f}", delta=f"{total - PRESUPUESTO_OBJETIVO:,.2f}", delta_color="inverse")
-    m3.metric("Saldo Disponible", f"${saldo:,.2f}", delta_color="normal" if saldo >= 0 else "off")
-    
-    if total > PRESUPUESTO_OBJETIVO:
-        st.error(f"❌ Exceso de presupuesto por **${abs(saldo):,.2f} MXN**.")
-    elif total == PRESUPUESTO_OBJETIVO:
-        st.success("✅ Presupuesto distribuido al 100% ($3,800.00 MXN).")
-    else:
-        st.warning(f"ℹ️ Saldo por asignar: **${saldo:,.2f} MXN**.")
+        total_global = df_admin_edit["Importe"].sum()
+        saldo_global = PRESUPUESTO_GLOBAL - total_global
         
-    if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
-        with st.spinner("Actualizando Google Sheets..."):
-            if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
-                st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
-            else:
-                st.error("❌ Error al sincronizar con Google Sheets.")
+        gm1, gm2, gm3 = st.columns(3)
+        gm1.metric("Presupuesto Global Autorizado", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        gm2.metric("Total Solicitado General", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        gm3.metric("Saldo Global Restante", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
+        
+        if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
+            with st.spinner("Actualizando Google Sheets..."):
+                if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
+                    st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
+                else:
+                    st.error("❌ Error al guardar.")
+
+    with tab_saldos:
+        st.subheader("Estado Presupuestal por Solicitante")
+        
+        resumen_solicitantes = []
+        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
+            filas_sol = df_admin_edit[df_admin_edit["Solicita"] == sol]
+            gastado = filas_sol["Importe"].sum()
+            restante = p_base - gastado
+            unidades_cargando = len(filas_sol[filas_sol["Importe"] > 0])
+            
+            resumen_solicitantes.append({
+                "Solicitante": sol,
+                "Presupuesto Asignado": f"${p_base:,.2f}",
+                "Total Solicitado": f"${gastado:,.2f}",
+                "Saldo Disponible": f"${restante:,.2f}",
+                "Unidades con Carga": f"{unidades_cargando} unidad(es)",
+                "Estado": "✅ Exacto" if restante == 0 else ("⚠️ Excedido" if restante < 0 else "🟢 Con Saldo")
+            })
+            
+        df_resumen = pd.DataFrame(resumen_solicitantes)
+        st.dataframe(df_resumen, use_container_width=True, hide_index=True)
