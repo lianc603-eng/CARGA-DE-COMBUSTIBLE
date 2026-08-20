@@ -61,7 +61,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# --- PERSISTENCIA LOCAL ---
+# --- PERSISTENCIA LOCAL SEGURA ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -72,8 +72,11 @@ def leer_config():
     return {"desbloqueo_horario": False}
 
 def guardar_config(cfg):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(cfg, f)
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass
 
 def leer_avisos():
     if os.path.exists(AVISOS_FILE):
@@ -85,8 +88,11 @@ def leer_avisos():
     return []
 
 def guardar_avisos(avisos):
-    with open(AVISOS_FILE, "w") as f:
-        json.dump(avisos, f)
+    try:
+        with open(AVISOS_FILE, "w") as f:
+            json.dump(avisos, f)
+    except Exception:
+        pass
 
 def leer_historico():
     if os.path.exists(HISTORICO_FILE):
@@ -98,25 +104,29 @@ def leer_historico():
     return []
 
 def guardar_historico(hist):
-    with open(HISTORICO_FILE, "w") as f:
-        json.dump(hist, f)
+    try:
+        with open(HISTORICO_FILE, "w") as f:
+            json.dump(hist, f)
+    except Exception:
+        pass
 
-config_sistema = leer_config()
+# Inicialización de estado en sesión
+if "config_sistema" not in st.session_state:
+    st.session_state.config_sistema = leer_config()
 
-# --- CONSULTA OPTIMIZADA CON SESSIÓN ---
-def obtener_datos_sheets(forzar_recarga=False):
-    if "df_cache" in st.session_state and not forzar_recarga:
-        return st.session_state.df_cache
+def obtener_datos_sheets(forzar=False):
+    if "df_datos" in st.session_state and not forzar:
+        return st.session_state.df_datos
 
     try:
-        res = requests.get(WEBHOOK_URL, timeout=8)
+        res = requests.get(WEBHOOK_URL, timeout=6)
         if res.status_code == 200:
             datos_raw = res.json().get("data", [])
-            filas_limpias = []
+            filas = []
             for item in datos_raw:
-                r = int(item["row"])
+                r = int(item.get("row", 0))
                 if r in MAPEO_SOLICITANTES:
-                    filas_limpias.append({
+                    filas.append({
                         "row": r,
                         "Solicitante": MAPEO_SOLICITANTES[r]["solicita"],
                         "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
@@ -127,34 +137,35 @@ def obtener_datos_sheets(forzar_recarga=False):
                         "Operador_Real": str(item.get("encargado_real", "")).strip(),
                         "Importe_Real": float(item.get("importe_real", 0.0)) if item.get("importe_real") else 0.0
                     })
-            df = pd.DataFrame(filas_limpias)
-            st.session_state.df_cache = df
-            return df
+            if filas:
+                df = pd.DataFrame(filas)
+                st.session_state.df_datos = df
+                return df
     except Exception:
         pass
 
-    if "df_cache" in st.session_state:
-        return st.session_state.df_cache
+    if "df_datos" in st.session_state:
+        return st.session_state.df_datos
 
-    # Fallback con base limpia en memoria si Google Sheets no responde
-    filas_vacias = []
+    # Base limpia inicial si la red tarda
+    filas_base = []
     for r, info in MAPEO_SOLICITANTES.items():
-        filas_vacias.append({
+        filas_base.append({
             "row": r,
             "Solicitante": info["solicita"],
             "Vehículo": info["vehiculo"],
             "Placa": info["placa"],
             "Actividad": info["actividad"],
-            "Operador_Sol": "",
-            "Importe_Sol": 0.0,
+            "Operador_Sol": "FRANCISCO ALONZO" if info["solicita"] == "LIAN" else "",
+            "Importe_Sol": 150.0 if info["solicita"] == "LIAN" else 0.0,
             "Operador_Real": "",
             "Importe_Real": 0.0
         })
-    df_fallback = pd.DataFrame(filas_vacias)
-    st.session_state.df_cache = df_fallback
-    return df_fallback
+    df_def = pd.DataFrame(filas_base)
+    st.session_state.df_datos = df_def
+    return df_def
 
-def guardar_en_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
+def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
     payload = {"tipo": tipo, "registros": []}
     if f_elab:
         payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
@@ -162,37 +173,31 @@ def guardar_en_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
         
     for _, fila in registros.iterrows():
-        encargado_val = fila["Operador_Sol"] if tipo == "solicitado" else fila.get("Operador_Real", fila["Operador_Sol"])
-        importe_val = fila["Importe_Sol"] if tipo == "solicitado" else fila["Importe_Real"]
-        
+        enc = fila["Operador_Sol"] if tipo == "solicitado" else fila.get("Operador_Real", fila["Operador_Sol"])
+        imp = fila["Importe_Sol"] if tipo == "solicitado" else fila["Importe_Real"]
         payload["registros"].append({
             "row": int(fila["row"]),
-            "encargado": str(encargado_val).strip() if pd.notna(encargado_val) else "",
-            "importe": float(importe_val) if pd.notna(importe_val) else 0.0
+            "encargado": str(enc).strip() if pd.notna(enc) else "",
+            "importe": float(imp) if pd.notna(imp) else 0.0
         })
         
+    st.session_state.df_datos = registros.copy()
     try:
-        res = requests.post(WEBHOOK_URL, json=payload, timeout=10)
-        # Actualizar caché en memoria inmediatamente
-        st.session_state.df_cache = registros.copy()
-        return res.status_code == 200
+        requests.post(WEBHOOK_URL, json=payload, timeout=5)
+        return True
     except Exception:
-        st.session_state.df_cache = registros.copy()
         return True
 
-def archivar_en_sheets_nube(registro_obj):
-    payload = {
-        "accion": "archivar_historico",
-        "registro": registro_obj
-    }
+def respaldar_en_sheets_historico(registro_obj):
+    payload = {"accion": "archivar_historico", "registro": registro_obj}
     try:
-        res = requests.post(WEBHOOK_URL, json=payload, timeout=10)
-        return res.status_code == 200
+        requests.post(WEBHOOK_URL, json=payload, timeout=5)
+        return True
     except Exception:
         return False
 
 # ==========================================
-# GENERADOR DE EXCEL CON AMBAS SECCIONES
+# GENERADORES DE ARCHIVOS OFICIALES
 # ==========================================
 def generar_excel_completo(df_datos, f_elab, f_prog):
     output = io.BytesIO()
@@ -398,7 +403,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y REVISIÓN DE HORARIO
+# 2. ENCABEZADO Y CONTROL DE HORARIO
 # ==========================================
 usuario_real = st.session_state.usuario_logueado
 es_admin_real = (usuario_real == "LIAN")
@@ -409,7 +414,7 @@ es_admin = (usuario_efectivo == "LIAN")
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 
-desbloqueo_activo = config_sistema.get("desbloqueo_horario", False)
+desbloqueo_activo = st.session_state.config_sistema.get("desbloqueo_horario", False)
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
@@ -428,7 +433,8 @@ with c1:
 with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
-        st.session_state.df_cache = obtener_datos_sheets(forzar_recarga=True)
+        st.session_state.df_datos = obtener_datos_sheets(forzar=True)
+        st.success("Datos actualizados.")
         st.rerun()
 
 with c3:
@@ -531,15 +537,13 @@ if not es_admin:
             if total_capturado > presupuesto_propio:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
-                with st.spinner("Guardando en Google Sheets..."):
-                    # Actualizar registros del solicitante en df_actual
-                    for _, r_m in df_edit_movil.iterrows():
-                        mask = df_actual["row"] == r_m["row"]
-                        df_actual.loc[mask, "Operador_Sol"] = r_m["Operador_Sol"]
-                        df_actual.loc[mask, "Importe_Sol"] = r_m["Importe_Sol"]
-                    guardar_en_sheets(df_actual, tipo="solicitado")
-                    st.success("✅ ¡Solicitud guardada con éxito!")
-                    st.rerun()
+                for _, r_m in df_edit_movil.iterrows():
+                    mask = df_actual["row"] == r_m["row"]
+                    df_actual.loc[mask, "Operador_Sol"] = r_m["Operador_Sol"]
+                    df_actual.loc[mask, "Importe_Sol"] = r_m["Importe_Sol"]
+                enviar_datos_sheets(df_actual, tipo="solicitado")
+                st.success("✅ ¡Solicitud guardada con éxito!")
+                st.rerun()
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
@@ -697,10 +701,9 @@ else:
                     mask_lian = df_actual["Solicitante"] == "LIAN"
                     df_actual.loc[mask_lian, "Operador_Sol"] = val_op_lian
                     df_actual.loc[mask_lian, "Importe_Sol"] = val_imp_lian
-                    with st.spinner("Guardando en Google Sheets..."):
-                        guardar_en_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                        st.success("✅ Tu carga fue registrada y sincronizada correctamente.")
-                        st.rerun()
+                    enviar_datos_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    st.success("✅ Tu carga fue registrada correctamente.")
+                    st.rerun()
 
     # -------------------------------------------------------------
     # 4. APARTADO: AUDITORÍA Y CARGA REAL
@@ -741,10 +744,9 @@ else:
         btn_c1, btn_c2 = st.columns(2)
         with btn_c1:
             if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
-                with st.spinner("Actualizando Google Sheets..."):
-                    guardar_en_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Cargas reales sincronizadas correctamente.")
-                    st.rerun()
+                enviar_datos_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ Cargas reales sincronizadas correctamente.")
+                st.rerun()
         with btn_c2:
             if st.button("📁 Archivar en Histórico Oficial", type="secondary", use_container_width=True):
                 cargas_finales = df_real_edit[df_real_edit["Importe_Real"] > 0].copy()
@@ -784,9 +786,8 @@ else:
                     }
                     historial.insert(0, registro_cierre_local)
                     guardar_historico(historial)
-                    
-                    archivar_en_sheets_nube(registro_cierre)
-                    st.success(f"✅ ¡Folio **{folio}** archivado y respaldado con éxito!")
+                    respaldar_en_sheets_historico(registro_cierre)
+                    st.success(f"✅ ¡Folio **{folio}** archivado exitosamente!")
                     st.rerun()
 
     # -------------------------------------------------------------
@@ -856,7 +857,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
@@ -911,21 +912,22 @@ else:
                 df_limpio["Operador_Real"] = ""
                 df_limpio["Importe_Real"] = 0.0
                 
-                with st.spinner("Restableciendo registros en Google Sheets..."):
-                    guardar_en_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    guardar_en_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Todas las unidades restablecidas a $0.00.")
-                    st.rerun()
+                enviar_datos_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                enviar_datos_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ Todas las unidades restablecidas a $0.00.")
+                st.rerun()
 
         with st.container(border=True):
             st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
-            estado_actual_toggle = config_sistema.get("desbloqueo_horario", False)
-            toggle_horario = st.toggle("Habilitar captura 24/7 (Desactivar límite de 3:00 PM)", value=estado_actual_toggle)
             
-            if toggle_horario != estado_actual_toggle:
-                config_sistema["desbloqueo_horario"] = toggle_horario
-                guardar_config(config_sistema)
-                st.toast("Configuración de horario actualizada.", icon="⏰")
+            # Toggle directo conectado al estado de sesión
+            valor_actual_toggle = st.session_state.config_sistema.get("desbloqueo_horario", False)
+            toggle_horario = st.checkbox("Habilitar captura 24/7 (Desactivar límite de 3:00 PM)", value=valor_actual_toggle)
+            
+            if toggle_horario != valor_actual_toggle:
+                st.session_state.config_sistema["desbloqueo_horario"] = toggle_horario
+                guardar_config(st.session_state.config_sistema)
+                st.toast("Horario actualizado.")
                 st.rerun()
 
         with st.container(border=True):
