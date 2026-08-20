@@ -4,6 +4,9 @@ from datetime import datetime, date, time
 import pytz
 import requests
 import json
+import io
+import openpyxl
+from fpdf import FPDF
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
@@ -24,18 +27,18 @@ PRESUPUESTO_POR_SOLICITANTE = {
 }
 
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7"},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7"},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU8"},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "88GWU7"},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "88GWU8"},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU7"},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8"},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7"},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8"},
-    22: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7"},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B"},
-    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C"},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7", "actividad": "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7", "actividad": "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU8", "actividad": "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "88GWU7", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "88GWU8", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU7", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    22: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7", "actividad": "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE"},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B", "actividad": "ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA Y REFORESTACIONES"},
+    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS"},
 }
 
 USUARIOS_PASSWORD = {
@@ -62,6 +65,7 @@ def obtener_datos_sheets():
                         "Solicitante": MAPEO_SOLICITANTES[r]["solicita"],
                         "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
                         "Placa": MAPEO_SOLICITANTES[r]["placa"],
+                        "Actividad": MAPEO_SOLICITANTES[r]["actividad"],
                         "Operador / Encargado": str(item.get("encargado", "")).strip(),
                         "Importe ($)": float(item.get("importe", 0.0)) if item.get("importe") else 0.0
                     })
@@ -92,7 +96,106 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# 1. INICIO DE SESIÓN
+# GENERADORES DE EXCEL Y PDF (SOLO CON CARGA)
+# ==========================================
+def generar_excel_filtrado(df_cargas, f_elab, f_prog):
+    output = io.BytesIO()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Solicitud de Carga"
+    
+    # Encabezados
+    ws["B2"] = "H. AYUNTAMIENTO DE CAMPECHE"
+    ws["B4"] = "Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE"
+    ws["F6"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
+    ws["F7"] = f"Programación para el día: {f_prog.strftime('%d/%m/%Y')}"
+    
+    headers = ["NOMBRE DEL ENCARGADO", "VEHÍCULO", "PLACA", "OFICIAL/COMODATO", "IMPORTE", "COMBUSTIBLE", "ACTIVIDAD"]
+    ws.append([])
+    ws.append(headers)
+    
+    total = 0.0
+    for _, row in df_cargas.iterrows():
+        ws.append([
+            row["Operador / Encargado"],
+            row["Vehículo"],
+            row["Placa"],
+            "OFICIAL",
+            float(row["Importe ($)"]),
+            "MAGNA",
+            row["Actividad"]
+        ])
+        total += float(row["Importe ($)"])
+        
+    ws.append(["", "", "", "TOTAL:", total, "", ""])
+    wb.save(output)
+    return output.getvalue()
+
+def generar_pdf_oficial(df_cargas, f_elab, f_prog):
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    
+    # Encabezado Oficial
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 6, 'H. AYUNTAMIENTO DE CAMPECHE', 0, 1, 'C')
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 5, 'DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 1, 'C')
+    pdf.ln(3)
+    
+    # Fechas
+    pdf.set_font('Arial', '', 9)
+    pdf.cell(140, 5, 'Unidad: DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE', 0, 0, 'L')
+    pdf.cell(130, 5, f'Elaboró: {f_elab.strftime("%d/%m/%Y")}', 0, 1, 'R')
+    pdf.cell(140, 5, '', 0, 0, 'L')
+    pdf.cell(130, 5, f'Programación para el día: {f_prog.strftime("%d/%m/%Y")}', 0, 1, 'R')
+    pdf.ln(4)
+    
+    # Cabecera de Tabla
+    pdf.set_font('Arial', 'B', 8)
+    pdf.set_fill_color(220, 220, 220)
+    pdf.cell(50, 7, 'NOMBRE DEL ENCARGADO', 1, 0, 'C', True)
+    pdf.cell(35, 7, 'VEHÍCULO', 1, 0, 'C', True)
+    pdf.cell(20, 7, 'PLACA', 1, 0, 'C', True)
+    pdf.cell(20, 7, 'RÉGIMEN', 1, 0, 'C', True)
+    pdf.cell(25, 7, 'IMPORTE', 1, 0, 'C', True)
+    pdf.cell(25, 7, 'TIPO', 1, 0, 'C', True)
+    pdf.cell(95, 7, 'ACTIVIDAD', 1, 1, 'C', True)
+    
+    # Filas con Carga
+    pdf.set_font('Arial', '', 7)
+    total = 0.0
+    for _, row in df_cargas.iterrows():
+        pdf.cell(50, 6, str(row["Operador / Encargado"])[:30], 1, 0, 'L')
+        pdf.cell(35, 6, str(row["Vehículo"])[:22], 1, 0, 'L')
+        pdf.cell(20, 6, str(row["Placa"]), 1, 0, 'C')
+        pdf.cell(20, 6, 'OFICIAL', 1, 0, 'C')
+        pdf.cell(25, 6, f"${float(row['Importe ($)']):,.2f}", 1, 0, 'R')
+        pdf.cell(25, 6, 'MAGNA', 1, 0, 'C')
+        pdf.cell(95, 6, str(row["Actividad"])[:60], 1, 1, 'L')
+        total += float(row["Importe ($)"])
+        
+    # Fila de Total
+    pdf.set_font('Arial', 'B', 8)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(125, 7, 'TOTAL AUTORIZADO:', 1, 0, 'R', True)
+    pdf.cell(25, 7, f"${total:,.2f}", 1, 0, 'R', True)
+    pdf.cell(120, 7, '', 1, 1, 'L', True)
+    
+    # Firmas institucionales
+    pdf.ln(18)
+    pdf.cell(85, 4, '__________________________________', 0, 0, 'C')
+    pdf.cell(95, 4, '', 0, 0, 'C')
+    pdf.cell(85, 4, '__________________________________', 0, 1, 'C')
+    
+    pdf.cell(85, 4, 'SOLICITA / ELABORÓ', 0, 0, 'C')
+    pdf.cell(95, 4, '', 0, 0, 'C')
+    pdf.cell(85, 4, 'AUTORIZA', 0, 1, 'C')
+    
+    return pdf.output(dest='S').encode('latin1')
+
+# ==========================================
+# 1. LOGIN
 # ==========================================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
@@ -116,7 +219,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y CONTROL DE HORARIO
+# 2. ENCABEZADO Y REVISIÓN DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -150,15 +253,12 @@ if not es_admin:
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario].copy()
     
     if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO POR HORARIO LÍMITE (3:00 PM)**. La captura se encuentra deshabilitada. Contacta al Administrador para cualquier modificación.")
+        st.error("🔒 **SISTEMA CERRADO POR HORARIO LÍMITE (3:00 PM)**. La captura se encuentra deshabilitada.")
     
     tab_solicitud, tab_resumen = st.tabs(["📝 Captura y Distribución", "📊 Resumen y Saldo de Cargas"])
     
     with tab_solicitud:
-        if not sistema_bloqueado:
-            st.caption("Captura el nombre del operador e importe para las unidades bajo tu cargo:")
-        
-        columnas_bloqueadas = ["row", "Solicitante", "Vehículo", "Placa"]
+        columnas_bloqueadas = ["row", "Solicitante", "Vehículo", "Placa", "Actividad"]
         if sistema_bloqueado:
             columnas_bloqueadas.extend(["Operador / Encargado", "Importe ($)"])
         
@@ -169,8 +269,7 @@ if not es_admin:
             column_config={
                 "Operador / Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
                 "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None,
-                "Solicitante": None
+                "row": None, "Solicitante": None, "Actividad": None
             },
             hide_index=True,
             key="editor_usuario"
@@ -180,42 +279,31 @@ if not es_admin:
         saldo_disponible = presupuesto_propio - total_solicitado
         
         m1, m2, m3 = st.columns(3)
-        m1.metric("Presupuesto Asignado a tu Área", f"${presupuesto_propio:,.2f}")
-        m2.metric("Total Distribuido en Unidades", f"${total_solicitado:,.2f}", delta=f"{total_solicitado - presupuesto_propio:,.2f}", delta_color="inverse")
-        m3.metric("Saldo Disponible Restante", f"${saldo_disponible:,.2f}", delta_color="normal" if saldo_disponible >= 0 else "off")
+        m1.metric("Presupuesto Asignado", f"${presupuesto_propio:,.2f}")
+        m2.metric("Total Solicitado", f"${total_solicitado:,.2f}", delta=f"{total_solicitado - presupuesto_propio:,.2f}", delta_color="inverse")
+        m3.metric("Saldo Disponible", f"${saldo_disponible:,.2f}", delta_color="normal" if saldo_disponible >= 0 else "off")
         
-        if total_solicitado > presupuesto_propio:
-            st.error(f"❌ Estás excediendo tu presupuesto autorizado por **${abs(saldo_disponible):,.2f} MXN**.")
-        elif total_solicitado == presupuesto_propio:
-            st.success("✅ Has distribuido exactamente el 100% de tu presupuesto semanal.")
-        else:
-            st.info(f"ℹ️ Tienes **${saldo_disponible:,.2f} MXN** disponibles para asignar.")
-            
         if not sistema_bloqueado:
             if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("Guardando en Google Sheets..."):
                     if guardar_en_sheets(df_edit):
-                        st.success("✅ Solicitud guardada y sincronizada correctamente.")
-                    else:
-                        st.error("❌ Error al guardar en Google Sheets.")
+                        st.success("✅ Solicitud guardada correctamente.")
+                        st.rerun()
 
     with tab_resumen:
-        st.subheader("🔍 Desglose de Cargas Solicitadas")
+        st.subheader("🔍 Vehículos que cargarán combustible")
         cargas_activas = df_edit[df_edit["Importe ($)"] > 0][["Vehículo", "Placa", "Operador / Encargado", "Importe ($)"]]
         
         if not cargas_activas.empty:
             st.dataframe(cargas_activas, use_container_width=True, hide_index=True)
         else:
-            st.warning("Aún no se ha asignado presupuesto a ninguna unidad.")
-            
-        st.markdown("---")
-        st.markdown(f"**Resumen:** Presupuesto Base: **${presupuesto_propio:,.2f}** | Total Asignado: **${total_solicitado:,.2f}** | Saldo: **${saldo_disponible:,.2f}**")
+            st.warning("No hay vehículos con importe asignado actualmente.")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Consolidación General y Control de Saldos por Área")
+    st.subheader("⚙️ Panel de Consolidación y Descarga Oficial")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -223,62 +311,44 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_saldos, tab_gral = st.tabs(["📊 Monitoreo y Saldo por Solicitante", "📋 Tabla Consolidada General"])
+    tab_saldos, tab_cargas_activas, tab_edicion = st.tabs([
+        "📊 Monitoreo de Saldos por Área",
+        "📄 Solicitud Final (Solo Vehículos que Cargan)", 
+        "✏️ Editor General de Unidades"
+    ])
+
+    # Filtrar únicamente los vehículos que van a cargar (> 0)
+    df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
 
     with tab_saldos:
-        st.markdown("##### 💵 Balance Financiero de Solicitudes Semanales")
-        
-        # Generar desglose financiero por solicitante
         filas_reporte = []
-        suma_solicitada_base = 0.0
-        
         for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
             sub_df = df_actual[df_actual["Solicitante"] == sol]
             solicitado = sub_df["Importe ($)"].sum()
             disponible = p_base - solicitado
             pct_usado = (solicitado / p_base * 100) if p_base > 0 else 0
-            unidades_con_carga = len(sub_df[sub_df["Importe ($)"] > 0])
-            total_unidades = len(sub_df)
             
-            suma_solicitada_base += solicitado
-            
-            # Estatus visual
-            if disponible == 0:
-                estatus = "✅ 100% Ejercido"
-            elif disponible > 0 and solicitado > 0:
-                estatus = "🟡 Parcialmente Cargado"
-            elif disponible < 0:
-                estatus = "⚠️ Excedido"
-            else:
-                estatus = "⚪ Sin Carga Registrada"
-                
             filas_reporte.append({
                 "Solicitante": sol,
                 "Presupuesto Base": p_base,
                 "Monto Solicitado": solicitado,
                 "Saldo Disponible": disponible,
                 "% Ejercido": f"{pct_usado:.1f}%",
-                "Unidades Activas": f"{unidades_con_carga} de {total_unidades}",
-                "Estatus": estatus
+                "Unidades Activas": f"{len(sub_df[sub_df['Importe ($)'] > 0])} de {len(sub_df)}",
+                "Estatus": "✅ 100% Ejercido" if disponible == 0 else ("⚠️ Excedido" if disponible < 0 else "🟢 Con Saldo")
             })
             
-        df_reporte_admin = pd.DataFrame(filas_reporte)
-        
-        # Tarjetas de resumen ejecutivo
-        total_global_solicitado = df_actual["Importe ($)"].sum()
-        saldo_global_disponible = PRESUPUESTO_GLOBAL - total_global_solicitado
+        total_global = df_actual["Importe ($)"].sum()
+        saldo_global = PRESUPUESTO_GLOBAL - total_global
         
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-        c_m1.metric("Presupuesto Total Autorizado", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c_m2.metric("Total Ya Solicitado", f"${total_global_solicitado:,.2f}", delta=f"{total_global_solicitado - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c_m3.metric("Saldo Disponible Global", f"${saldo_global_disponible:,.2f}", delta_color="normal" if saldo_global_disponible >= 0 else "off")
-        c_m4.metric("Bolsa Comodín Admin", "$200.00", help="Margen extra para asignar a cualquier unidad")
+        c_m1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c_m2.metric("Total Distribuido", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        c_m3.metric("Saldo Disponible", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
+        c_m4.metric("Bolsa Comodín", "$200.00")
         
-        st.write("")
-        
-        # Tabla detallada con formato de moneda
         st.dataframe(
-            df_reporte_admin,
+            pd.DataFrame(filas_reporte),
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -288,17 +358,52 @@ else:
             }
         )
 
-    with tab_gral:
-        st.markdown("##### ✏️ Modificación Directa de Unidades e Importes")
+    with tab_cargas_activas:
+        st.markdown("##### 🚗 Lista Oficial de Unidades a Cargar")
+        
+        if df_solo_cargas.empty:
+            st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
+        else:
+            st.dataframe(
+                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Solicitante", "Actividad"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={"Importe ($)": st.column_config.NumberColumn(format="$%.2f")}
+            )
+            
+            st.markdown("---")
+            col_d1, col_d2 = st.columns(2)
+            
+            with col_d1:
+                excel_bytes = generar_excel_filtrado(df_solo_cargas, f_elab, f_prog)
+                st.download_button(
+                    label="📥 Descargar Reporte en Excel (.xlsx)",
+                    data=excel_bytes,
+                    file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+            with col_d2:
+                pdf_bytes = generar_pdf_oficial(df_solo_cargas, f_elab, f_prog)
+                st.download_button(
+                    label="📄 Descargar Oficio Oficial en PDF",
+                    data=pdf_bytes,
+                    file_name=f"OFICIO_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+    with tab_edicion:
         df_admin_edit = st.data_editor(
             df_actual,
             use_container_width=True,
-            disabled=["row", "Vehículo", "Placa"],
+            disabled=["row", "Vehículo", "Placa", "Actividad"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Solicitante", disabled=False),
                 "Operador / Encargado": st.column_config.TextColumn("Operador / Encargado"),
                 "Importe ($)": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None
+                "row": None, "Actividad": None
             },
             hide_index=True,
             key="editor_admin"
@@ -307,7 +412,5 @@ else:
         if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
             with st.spinner("Actualizando Google Sheets..."):
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
-                    st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
+                    st.success("✅ Datos sincronizados correctamente.")
                     st.rerun()
-                else:
-                    st.error("❌ Error al guardar en Google Sheets.")
