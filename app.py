@@ -66,7 +66,7 @@ def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
+                return json.load(f)[cite: 1]
         except Exception:
             pass
     return {"desbloqueo_horario": False}
@@ -531,6 +531,7 @@ else:
     df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
     with tab_panel_principal:
+        # MÉTRICAS GLOBALES
         total_global_sol = df_actual["Importe_Sol"].sum()
         total_global_real = df_actual["Importe_Real"].sum()
         ahorro_vs_sol = total_global_sol - total_global_real
@@ -544,7 +545,89 @@ else:
         
         st.divider()
 
-        # SECCIÓN 1: CARGA SOLICITADA (PREVENTIVA)
+        # 1. MONITOREO DE SALDOS EN TIEMPO REAL POR ÁREA
+        st.markdown("### 📊 Monitoreo de Presupuestos y Saldos por Área")
+        filas_saldos_area = []
+        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
+            sub_df = df_actual[df_actual["Solicitante"] == sol]
+            sol_monto = sub_df["Importe_Sol"].sum()
+            real_monto = sub_df["Importe_Real"].sum()
+            disp_monto = p_base - real_monto if real_monto > 0 else (p_base - sol_monto)
+            pct_ejercido = ((real_monto if real_monto > 0 else sol_monto) / p_base * 100) if p_base > 0 else 0
+            
+            if disp_monto == 0:
+                estatus = "✅ 100% Ejercido"
+            elif disp_monto < 0:
+                estatus = "⚠️ Excedido"
+            elif (real_monto > 0 or sol_monto > 0):
+                estatus = "🟢 Con Saldo"
+            else:
+                estatus = "⚪ Sin Carga"
+                
+            filas_saldos_area.append({
+                "Solicitante / Área": sol,
+                "Presupuesto Base": p_base,
+                "Monto Solicitado": sol_monto,
+                "Monto Real Ejercido": real_monto,
+                "Saldo Disponible": disp_monto,
+                "% Usado": f"{pct_ejercido:.1f}%",
+                "Estatus": estatus
+            })
+            
+        df_saldos_area = pd.DataFrame(filas_saldos_area)
+        st.dataframe(
+            df_saldos_area,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
+                "Monto Solicitado": st.column_config.NumberColumn(format="$%.2f"),
+                "Monto Real Ejercido": st.column_config.NumberColumn(format="$%.2f"),
+                "Saldo Disponible": st.column_config.NumberColumn(format="$%.2f"),
+            }
+        )
+
+        st.divider()
+
+        # 2. CAPTURA DE TU UNIDAD (LIAN)
+        st.markdown("### 🛵 Solicitud de Carga para tu Unidad (LIAN)")
+        df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+        
+        if not df_lian.empty:
+            row_lian = df_lian.iloc[0]
+            with st.container(border=True):
+                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto: **$150.00**")
+                
+                c_op_lian, c_imp_lian, c_btn_lian = st.columns([2, 1.2, 1.2])
+                with c_op_lian:
+                    val_op_lian = st.text_input(
+                        "Operador Encargado", 
+                        value=row_lian["Operador_Sol"] if row_lian["Operador_Sol"] else "FRANCISCO ALONZO",
+                        key="admin_op_lian"
+                    )
+                with c_imp_lian:
+                    val_imp_lian = st.number_input(
+                        "Importe Solicitado ($)", 
+                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else 150.00,
+                        step=50.0,
+                        min_value=0.0,
+                        key="admin_imp_lian",
+                        format="%.2f"
+                    )
+                with c_btn_lian:
+                    st.write("")
+                    st.write("")
+                    if st.button("💾 Guardar Mi Carga", type="primary", use_container_width=True):
+                        df_actual.loc[df_actual["Solicitante"] == "LIAN", "Operador_Sol"] = val_op_lian
+                        df_actual.loc[df_actual["Solicitante"] == "LIAN", "Importe_Sol"] = val_imp_lian
+                        with st.spinner("Guardando tu carga en Google Sheets..."):
+                            if guardar_en_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog):
+                                st.success("✅ Tu carga fue registrada correctamente.")
+                                st.rerun()
+
+        st.divider()
+
+        # 3. SECCIÓN 1: CARGA SOLICITADA OFICIAL
         st.markdown("### 📋 Sección 1: Carga Solicitada Oficial")
         if df_solo_cargas_sol.empty:
             st.info("ℹ️ Aún no hay unidades con solicitud de carga.")
@@ -582,7 +665,7 @@ else:
 
         st.divider()
 
-        # SECCIÓN 2: CARGA REAL Y AUDITORÍA
+        # 4. SECCIÓN 2: CARGA REAL Y CONCILIACIÓN
         st.markdown("### 🔍 Sección 2: Carga Real y Conciliación")
         st.caption("Captura el importe comprobado para conciliar y guardar en Sheets:")
         
@@ -637,7 +720,6 @@ else:
                         "detalle_texto": detalle_texto
                     }
                     
-                    # 1. Guardar en JSON local
                     registro_cierre_local = {
                         "folio": folio,
                         "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
@@ -652,7 +734,6 @@ else:
                     historial.insert(0, registro_cierre_local)
                     guardar_historico(historial)
                     
-                    # 2. Respaldar en la pestaña 'historico' de Google Sheets
                     with st.spinner("Respaldando en la pestaña 'historico' de Google Sheets..."):
                         archivar_en_sheets_nube(registro_cierre)
                     
