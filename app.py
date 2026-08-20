@@ -1,26 +1,28 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import datetime, date, time
+import pytz
 import requests
 import json
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 PRESUPUESTO_GLOBAL = 3800.00
+HORA_LIMITE = time(15, 0)  # 3:00 PM
+ZONA_HORARIA = pytz.timezone("America/Merida")
+
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Presupuesto semanal asignado por solicitante único
 PRESUPUESTO_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 400.00,  # 2 motos ($200 c/u: 85GWU7 y 87GWU8)
+    "COB CHAVEZ NARCISO DEL JESUS": 400.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "NOEL CHAN": 850.00,                    # 6 motos de inspección
-    "LIAN": 150.00,                         # Administrativo
-    "RENAN/HELDER": 500.00,                 # Automóvil Jetta
-    "QUEVEDO": 1500.00,                     # RAM, Nissan y Motosierra
+    "NOEL CHAN": 850.00,
+    "LIAN": 150.00,
+    "RENAN/HELDER": 500.00,
+    "QUEVEDO": 1500.00,
 }
 
-# Mapeo oficial de vehículos por fila (filas 12 a 26 de FORMATO.xlsx)
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7"},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7"},
@@ -39,7 +41,6 @@ MAPEO_SOLICITANTES = {
     26: {"solicita": "QUEVEDO", "vehiculo": "MOTOSIERRA 310", "placa": "00611-23-MOT-49234"},
 }
 
-# Credenciales de acceso únicas (sin duplicados)
 USUARIOS_PASSWORD = {
     "LIAN": "admin123",
     "NOEL CHAN": "inspeccion2026",
@@ -117,15 +118,21 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO DE CONTROL
+# 2. ENCABEZADO Y REVISIÓN DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
+
+# Evaluación del límite de horario
+ahora_local = datetime.now(ZONA_HORARIA)
+hora_actual = ahora_local.time()
+sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin
 
 c1, c2 = st.columns([4, 1])
 with c1:
     st.title("⛽ Control Semanal de Combustible")
     st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario}**")
+    st.caption(f"🕒 Hora local: **{ahora_local.strftime('%I:%M %p')}** | Límite de carga: **3:00 PM**")
 with c2:
     st.write("")
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
@@ -145,15 +152,23 @@ if not es_admin:
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario, 0.00)
     df_solicitante = df_actual[df_actual["Solicita"] == usuario].copy()
     
+    if sistema_bloqueado:
+        st.error("🔒 **SISTEMA CERRADO POR HORARIO LIMITE (3:00 PM)**. La captura está deshabilitada. Contacta al Administrador para cualquier modificación.")
+    
     tab_solicitud, tab_resumen = st.tabs(["📝 Captura y Distribución", "📊 Resumen y Saldo de Cargas"])
     
     with tab_solicitud:
-        st.caption("Captura el nombre del encargado y el importe para las unidades bajo tu cargo:")
+        if not sistema_bloqueado:
+            st.caption("Captura el nombre del encargado y el importe para las unidades bajo tu cargo:")
+        
+        columnas_bloqueadas = ["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"]
+        if sistema_bloqueado:
+            columnas_bloqueadas.extend(["Encargado", "Importe"])
         
         df_edit = st.data_editor(
             df_solicitante,
             use_container_width=True,
-            disabled=["row", "Solicita", "Vehículo", "Placa", "encargado", "importe"],
+            disabled=columnas_bloqueadas,
             column_config={
                 "Encargado": st.column_config.TextColumn("Nombre del Encargado / Operador", required=True),
                 "Importe": st.column_config.NumberColumn("Importe ($)", min_value=0.0, step=50.0, format="$%.2f"),
@@ -178,22 +193,22 @@ if not es_admin:
         else:
             st.info(f"ℹ️ Tienes **${saldo_disponible:,.2f} MXN** disponibles para asignar.")
             
-        if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
-            with st.spinner("Guardando en Google Sheets..."):
-                if guardar_en_sheets(df_edit):
-                    st.success("✅ Solicitud guardada y sincronizada correctamente.")
-                else:
-                    st.error("❌ Error al guardar en Google Sheets.")
+        if not sistema_bloqueado:
+            if st.button("💾 Guardar Solicitud en Google Sheets", type="primary", use_container_width=True):
+                with st.spinner("Guardando en Google Sheets..."):
+                    if guardar_en_sheets(df_edit):
+                        st.success("✅ Solicitud guardada y sincronizada correctamente.")
+                    else:
+                        st.error("❌ Error al guardar en Google Sheets.")
 
     with tab_resumen:
         st.subheader("🔍 Desglose de Cargas Solicitadas")
-        
         cargas_activas = df_edit[df_edit["Importe"] > 0][["Vehículo", "Placa", "Encargado", "Importe"]]
         
         if not cargas_activas.empty:
             st.dataframe(cargas_activas, use_container_width=True, hide_index=True)
         else:
-            st.warning("Aún no has asignado presupuesto a ninguna unidad.")
+            st.warning("Aún no se ha asignado presupuesto a ninguna unidad.")
             
         st.markdown("---")
         st.markdown(f"**Resumen de cuenta:** Presupuesto: **${presupuesto_propio:,.2f}** | Asignado: **${total_solicitado:,.2f}** | Saldo Restante: **${saldo_disponible:,.2f}**")
