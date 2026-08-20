@@ -34,7 +34,7 @@ PRESUPUESTO_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# Suma automática de los presupuestos asignados a los solicitantes ($3,600.00)
+# $3,600.00 exactos asignados a los solicitantes
 PRESUPUESTO_ASIGNADO_SOLICITANTES = sum(PRESUPUESTO_POR_SOLICITANTE.values())
 
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
@@ -184,7 +184,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         bottom=Side(style='thin', color='000000')
     )
 
-    # 1. Cabecera Institucional
+    # Cabecera Institucional
     ws["D2"] = "H. AYUNTAMIENTO DE CAMPECHE"
     ws["D2"].font = fuente_titulo
     ws["D2"].alignment = Alignment(horizontal="center", vertical="center")
@@ -209,7 +209,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     ws["G7"] = f_prog.strftime("%d/%m/%Y")
     ws["G7"].font = fuente_sub
 
-    # 2. Encabezados de Tabla Oficial (Fila 11)
+    # Encabezados de Tabla Oficial
     headers_oficiales = [
         (2, "NOMBRE DEL\nENCARGADO"),
         (3, "VEHÍCULO"),
@@ -229,7 +229,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[11].height = 28
 
-    # 3. Llenado de Filas 12 a 24
+    # Filas 12 a 24
     for r_num in range(12, 25):
         row_info = df_datos[df_datos["row"] == r_num]
         
@@ -267,11 +267,10 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
             
         ws.row_dimensions[r_num].height = 24
         
-        # Ocultar fila si no tiene importe asignado
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
-    # 4. Fila 25: TOTAL
+    # Fila 25: TOTAL
     c_lbl_tot = ws.cell(row=25, column=6, value="TOTAL")
     c_lbl_tot.font = fuente_bold
     c_lbl_tot.alignment = Alignment(horizontal="right", vertical="center")
@@ -526,19 +525,22 @@ else:
 
     df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
-    # 1. MONITOREO DE SALDOS
+    # 1. MONITOREO DE SALDOS (SIN CANTIDADES REPETIDAS)
     with tab_saldos:
         st.markdown("##### 💵 Balance de Presupuestos en Tiempo Real")
         total_global_sol = df_actual["Importe_Sol"].sum()
         saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
-        # Métricas reordenadas
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Monto Asignado", f"${PRESUPUESTO_ASIGNADO_SOLICITANTES:,.2f}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Monto Asignado a Áreas", f"${PRESUPUESTO_ASIGNADO_SOLICITANTES:,.2f}")
         c2.metric("Bolsa Comodín", f"${BOLSA_COMODIN:,.2f}")
-        c3.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c4.metric("Total Ya Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c5.metric("Saldo Disponible Global", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
+        c3.metric("Presupuesto Total Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c4.metric(
+            "Total Ya Solicitado", 
+            f"${total_global_sol:,.2f}", 
+            delta=f"${saldo_global_sol:,.2f} disponible" if total_global_sol > 0 else "Sin solicitudes",
+            delta_color="normal" if saldo_global_sol >= 0 else "inverse"
+        )
         
         st.write("")
         filas_saldos_area = []
@@ -700,7 +702,7 @@ else:
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
-        # ⏰ CONTROL DE BLOQUEO DE 3:10 PM
+        # CONTROL DE BLOQUEO DE 3:10 PM
         with st.container(border=True):
             st.subheader("⏰ Control de Bloqueo a las 3:10 PM")
             st.write(
@@ -722,7 +724,7 @@ else:
                     st.toast("Bloqueo de 3:10 PM ACTIVADO para usuarios.", icon="🔒")
                 st.rerun()
 
-        # 🧹 LIMPIEZA DE PRUEBAS
+        # LIMPIEZA DE PRUEBAS
         with st.container(border=True):
             st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
             st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
@@ -739,7 +741,7 @@ else:
                 st.success("✅ Todas las unidades restablecidas a $0.00.")
                 st.rerun()
 
-        # 🧪 SIMULADOR
+        # SIMULADOR
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
