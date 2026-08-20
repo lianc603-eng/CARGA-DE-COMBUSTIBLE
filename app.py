@@ -17,11 +17,11 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # CONFIGURACIONES GENERALES Y HORARIO
 # ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
+BOLSA_COMODIN = 200.00
 HORA_LIMITE = time(15, 10)  # ⏰ 3:10 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
-
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
 PRESUPUESTO_POR_SOLICITANTE = {
@@ -33,6 +33,9 @@ PRESUPUESTO_POR_SOLICITANTE = {
     "QUEVEDO": 1500.00,
     "RENAN/HELDER": 500.00,
 }
+
+# Suma automática de los presupuestos asignados a los solicitantes ($3,600.00)
+PRESUPUESTO_ASIGNADO_SOLICITANTES = sum(PRESUPUESTO_POR_SOLICITANTE.values())
 
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
@@ -72,7 +75,6 @@ def leer_config():
                 return json.load(f)
         except Exception:
             pass
-    # Por defecto el bloqueo a las 3:10 PM está activo (desbloqueo_horario = False)
     return {"desbloqueo_horario": False}
 
 def guardar_config(cfg):
@@ -265,7 +267,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
             
         ws.row_dimensions[r_num].height = 24
         
-        # Ocultar fila si el vehículo no carga (Importe == $0)
+        # Ocultar fila si no tiene importe asignado
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
@@ -385,7 +387,6 @@ hora_actual = ahora_local.time()
 cfg_actual = leer_config()
 desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
 
-# 👉 REGLA: Los usuarios se bloquean a las 3:10 PM a excepción de LIAN o si activas el desbloqueo
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
@@ -531,11 +532,13 @@ else:
         total_global_sol = df_actual["Importe_Sol"].sum()
         saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c2.metric("Total Ya Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Disponible Global", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
-        c4.metric("Bolsa Comodín", "$200.00")
+        # Métricas reordenadas
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Monto Asignado", f"${PRESUPUESTO_ASIGNADO_SOLICITANTES:,.2f}")
+        c2.metric("Bolsa Comodín", f"${BOLSA_COMODIN:,.2f}")
+        c3.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c4.metric("Total Ya Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        c5.metric("Saldo Disponible Global", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
         
         st.write("")
         filas_saldos_area = []
@@ -693,7 +696,7 @@ else:
             st.success("✅ Cargas reales sincronizadas correctamente en Google Sheets.")
             st.rerun()
 
-    # 5. MODO PRUEBAS Y MANTENIMIENTO (CONTROL DE HORARIO)
+    # 5. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
