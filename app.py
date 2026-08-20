@@ -136,7 +136,7 @@ def guardar_en_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
         
     for _, fila in registros.iterrows():
-        encargado_val = fila["Operador_Sol"] if tipo == "solicitado" else fila["Operador_Real"]
+        encargado_val = fila["Operador_Sol"] if tipo == "solicitado" else fila.get("Operador_Real", fila["Operador_Sol"])
         importe_val = fila["Importe_Sol"] if tipo == "solicitado" else fila["Importe_Real"]
         
         payload["registros"].append({
@@ -193,7 +193,7 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
 
     headers = [
         "", "ENCARGADO (SOLICITADO)", "VEHÍCULO", "PLACA", "RÉGIMEN", "IMPORTE SOL. ($)", "TIPO", "ACTIVIDAD",
-        "", "OPERADOR REAL", "VEHÍCULO", "PLACA", "IMPORTE REAL ($)", "DIFERENCIA ($)", "% EJERCIDO"
+        "", "VEHÍCULO", "PLACA", "IMPORTE REAL ($)", "DIFERENCIA ($)", "% EJERCIDO"
     ]
     ws.append([])
     ws.append(headers)
@@ -204,7 +204,7 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
         cell.fill = fill_sol
         cell.alignment = Alignment(horizontal="center", vertical="center")
         
-    for c_idx in range(10, 16):
+    for c_idx in range(10, 15):
         cell = ws.cell(row=8, column=c_idx)
         cell.font = fuente_header_real
         cell.fill = fill_real
@@ -213,8 +213,8 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
     start_row = 9
     for i, row in df_datos.iterrows():
         curr_row = start_row + i
-        f_dif = f"=F{curr_row}-M{curr_row}"
-        f_pct = f"=IF(F{curr_row}>0, M{curr_row}/F{curr_row}, 0)"
+        f_dif = f"=F{curr_row}-L{curr_row}"
+        f_pct = f"=IF(F{curr_row}>0, L{curr_row}/F{curr_row}, 0)"
         
         ws.append([
             "",
@@ -226,7 +226,6 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
             "MAGNA",
             row["Actividad"],
             "",
-            row["Operador_Real"] if row["Operador_Real"] else row["Operador_Sol"],
             row["Vehículo"],
             row["Placa"],
             float(row["Importe_Real"]),
@@ -234,19 +233,19 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
             f_pct
         ])
         
-        for c in range(2, 16):
+        for c in range(2, 15):
             if c == 9:
                 continue
             celda = ws.cell(row=curr_row, column=c)
             celda.font = fuente_normal
             celda.border = border_fino
-            if c in [6, 13, 14]:
+            if c in [6, 12, 13]:
                 celda.number_format = '$#,##0.00'
                 celda.alignment = Alignment(horizontal="right")
-            elif c == 15:
+            elif c == 14:
                 celda.number_format = '0.0%'
                 celda.alignment = Alignment(horizontal="center")
-            elif c in [4, 5, 7, 12]:
+            elif c in [4, 5, 7, 11]:
                 celda.alignment = Alignment(horizontal="center")
                 
     end_row = start_row + len(df_datos) - 1
@@ -259,14 +258,14 @@ def generar_excel_completo(df_datos, f_elab, f_prog):
     c_tot_sol.number_format = '$#,##0.00'
     c_tot_sol.fill = fill_total
     
-    ws.cell(row=total_row, column=12, value="TOTAL REAL:").font = fuente_bold
-    ws.cell(row=total_row, column=12).alignment = Alignment(horizontal="right")
-    c_tot_real = ws.cell(row=total_row, column=13, value=f"=SUM(M{start_row}:M{end_row})")
+    ws.cell(row=total_row, column=11, value="TOTAL REAL:").font = fuente_bold
+    ws.cell(row=total_row, column=11).alignment = Alignment(horizontal="right")
+    c_tot_real = ws.cell(row=total_row, column=12, value=f"=SUM(L{start_row}:L{end_row})")
     c_tot_real.font = fuente_bold
     c_tot_real.number_format = '$#,##0.00'
     c_tot_real.fill = fill_total
     
-    c_tot_dif = ws.cell(row=total_row, column=14, value=f"=F{total_row}-M{total_row}")
+    c_tot_dif = ws.cell(row=total_row, column=13, value=f"=F{total_row}-L{total_row}")
     c_tot_dif.font = fuente_bold
     c_tot_dif.number_format = '$#,##0.00'
     c_tot_dif.fill = fill_total
@@ -520,7 +519,6 @@ else:
     df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
     with tab_panel_principal:
-        # Métricas Globales
         total_global_sol = df_actual["Importe_Sol"].sum()
         total_global_real = df_actual["Importe_Real"].sum()
         ahorro_vs_sol = total_global_sol - total_global_real
@@ -574,8 +572,9 @@ else:
 
         # SECCIÓN 2: CARGA REAL Y AUDITORÍA
         st.markdown("### 🔍 Sección 2: Carga Real y Conciliación")
-        st.caption("Captura el operador real e importe comprobado para conciliar y guardar en Sheets:")
+        st.caption("Captura el importe comprobado para conciliar y guardar en Sheets:")
         
+        # Tabla sin la columna Operador que Cargó
         df_real_edit = st.data_editor(
             df_actual.copy(),
             use_container_width=True,
@@ -585,9 +584,8 @@ else:
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placas"),
                 "Importe_Sol": st.column_config.NumberColumn("Solicitado ($)", format="$%.2f"),
-                "Operador_Real": st.column_config.TextColumn("Operador que Cargó"),
                 "Importe_Real": st.column_config.NumberColumn("Monto Realmente Cargado ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "Actividad": None, "Operador_Sol": None
+                "row": None, "Actividad": None, "Operador_Sol": None, "Operador_Real": None
             },
             hide_index=True,
             key="editor_seccion_real_unificada"
@@ -620,7 +618,7 @@ else:
                         "total_ejercido": float(total_global_real),
                         "ahorro_remanente": float(saldo_global_disponible),
                         "total_vehiculos": int(len(cargas_finales)),
-                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador_Real", "Importe_Real"]].to_dict(orient="records")
+                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador_Sol", "Importe_Real"]].to_dict(orient="records")
                     }
                     historial.insert(0, registro_cierre)
                     guardar_historico(historial)
@@ -694,7 +692,7 @@ else:
             with c_tipo:
                 tipo_aviso = st.selectbox("Nivel de Prioridad:", ["Informativo", "Importante", "Urgente"])
                 
-            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el kilometraje antes de solicitar...")
+            texto_aviso_nuevo = st.text_area("Contenido del Mensaje:", placeholder="Ej. Recuerden verificar el odómetro antes de solicitar...")
             
             if st.form_submit_button("📤 Publicar Aviso", type="primary", use_container_width=True):
                 if texto_aviso_nuevo.strip():
