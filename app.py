@@ -118,26 +118,31 @@ def obtener_datos_sheets():
                         "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
                         "Placa": MAPEO_SOLICITANTES[r]["placa"],
                         "Actividad": MAPEO_SOLICITANTES[r]["actividad"],
-                        "Operador / Encargado": str(item.get("encargado", "")).strip(),
-                        "Importe ($)": float(item.get("importe", 0.0)) if item.get("importe") else 0.0
+                        "Operador_Sol": str(item.get("encargado_solicitado", "")).strip(),
+                        "Importe_Sol": float(item.get("importe_solicitado", 0.0)) if item.get("importe_solicitado") else 0.0,
+                        "Operador_Real": str(item.get("encargado_real", "")).strip(),
+                        "Importe_Real": float(item.get("importe_real", 0.0)) if item.get("importe_real") else 0.0
                     })
             return pd.DataFrame(filas_limpias)
     except Exception as err:
-        st.error(f"Error de conexión con Google Sheets: {err}")
+        st.error(f"Error al conectar con Google Sheets: {err}")
     return pd.DataFrame()
 
-def guardar_en_sheets(registros, f_elab=None, f_prog=None):
-    payload = {"registros": []}
+def guardar_en_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
+    payload = {"tipo": tipo, "registros": []}
     if f_elab:
         payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
     if f_prog:
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
         
     for _, fila in registros.iterrows():
+        encargado_val = fila["Operador_Sol"] if tipo == "solicitado" else fila["Operador_Real"]
+        importe_val = fila["Importe_Sol"] if tipo == "solicitado" else fila["Importe_Real"]
+        
         payload["registros"].append({
             "row": int(fila["row"]),
-            "encargado": str(fila["Operador / Encargado"]).strip() if pd.notna(fila["Operador / Encargado"]) else "",
-            "importe": float(fila["Importe ($)"]) if pd.notna(fila["Importe ($)"]) else 0.0
+            "encargado": str(encargado_val).strip() if pd.notna(encargado_val) else "",
+            "importe": float(importe_val) if pd.notna(importe_val) else 0.0
         })
         
     try:
@@ -148,188 +153,130 @@ def guardar_en_sheets(registros, f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# GENERADOR EXCEL CON FÓRMULAS NATIVAS
+# GENERADOR DE EXCEL CON AMBAS SECCIONES
 # ==========================================
-def generar_excel_magico(df_solicitado, df_real, f_elab, f_prog):
+def generar_excel_completo(df_datos, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     
-    # Estilos
-    fuente_titulo = Font(name="Calibri", size=13, bold=True, color="1F497D")
+    fuente_titulo = Font(name="Calibri", size=12, bold=True, color="1F497D")
     fuente_sub = Font(name="Calibri", size=10, bold=True)
-    fuente_header = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
-    fuente_bold = Font(name="Calibri", size=10, bold=True)
-    fuente_normal = Font(name="Calibri", size=10)
+    fuente_header_sol = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+    fuente_header_real = Font(name="Calibri", size=9, bold=True, color="FFFFFF")
+    fuente_bold = Font(name="Calibri", size=9, bold=True)
+    fuente_normal = Font(name="Calibri", size=9)
     
-    fill_header_sol = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-    fill_header_real = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
+    fill_sol = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+    fill_real = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
     fill_total = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid")
     
-    thin_border = Border(
-        left=Side(style='thin', color='CCCCCC'),
-        right=Side(style='thin', color='CCCCCC'),
-        top=Side(style='thin', color='CCCCCC'),
-        bottom=Side(style='thin', color='CCCCCC')
+    border_fino = Border(
+        left=Side(style='thin', color='DDDDDD'),
+        right=Side(style='thin', color='DDDDDD'),
+        top=Side(style='thin', color='DDDDDD'),
+        bottom=Side(style='thin', color='DDDDDD')
     )
 
-    # ---------------------------------------------
-    # PESTAÑA 1: CARGA SOLICITADA
-    # ---------------------------------------------
-    ws1 = wb.active
-    ws1.title = "1. CARGA SOLICITADA"
-    ws1.views.sheetView[0].showGridLines = True
+    ws = wb.active
+    ws.title = "CONTROL COMBUSTIBLE"
+    ws.views.sheetView[0].showGridLines = True
     
-    ws1["A1"] = "H. AYUNTAMIENTO DE CAMPECHE"
-    ws1["A1"].font = fuente_titulo
-    ws1["A2"] = "DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE - SOLICITUD PREVENTIVA"
-    ws1["A2"].font = fuente_sub
+    ws["B2"] = "H. AYUNTAMIENTO DE CAMPECHE"
+    ws["B2"].font = fuente_titulo
+    ws["B3"] = "DIRECCIÓN DE DESARROLLO URBANO Y MEDIO AMBIENTE"
+    ws["B3"].font = fuente_sub
     
-    ws1["E3"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
-    ws1["E4"] = f"Programación: {f_prog.strftime('%d/%m/%Y')}"
-    ws1["E3"].font = fuente_sub
-    ws1["E4"].font = fuente_sub
+    ws["F5"] = f"Elaboró: {f_elab.strftime('%d/%m/%Y')}"
+    ws["F6"] = f"Programación: {f_prog.strftime('%d/%m/%Y')}"
+    ws["F5"].font = fuente_sub
+    ws["F6"].font = fuente_sub
+
+    headers = [
+        "", "ENCARGADO (SOLICITADO)", "VEHÍCULO", "PLACA", "RÉGIMEN", "IMPORTE SOL. ($)", "TIPO", "ACTIVIDAD",
+        "", "OPERADOR REAL", "VEHÍCULO", "PLACA", "IMPORTE REAL ($)", "DIFERENCIA ($)", "% EJERCIDO"
+    ]
+    ws.append([])
+    ws.append(headers)
     
-    headers_sol = ["NO.", "SOLICITA", "NOMBRE DEL ENCARGADO", "VEHÍCULO", "PLACA", "RÉGIMEN", "IMPORTE SOLICITADO ($)", "TIPO", "ACTIVIDAD"]
-    ws1.append([])
-    ws1.append(headers_sol)
-    
-    header_row_idx = 6
-    for col_idx, h in enumerate(headers_sol, 1):
-        cell = ws1.cell(row=header_row_idx, column=col_idx)
-        cell.font = fuente_header
-        cell.fill = fill_header_sol
+    for c_idx in range(2, 9):
+        cell = ws.cell(row=8, column=c_idx)
+        cell.font = fuente_header_sol
+        cell.fill = fill_sol
         cell.alignment = Alignment(horizontal="center", vertical="center")
         
-    df_sol_activas = df_solicitado[df_solicitado["Importe ($)"] > 0].reset_index(drop=True)
-    start_row = 7
-    for i, row in df_sol_activas.iterrows():
-        current_r = start_row + i
-        ws1.append([
-            i + 1,
-            row["Solicitante"],
-            row["Operador / Encargado"],
+    for c_idx in range(10, 16):
+        cell = ws.cell(row=8, column=c_idx)
+        cell.font = fuente_header_real
+        cell.fill = fill_real
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        
+    start_row = 9
+    for i, row in df_datos.iterrows():
+        curr_row = start_row + i
+        f_dif = f"=F{curr_row}-M{curr_row}"
+        f_pct = f"=IF(F{curr_row}>0, M{curr_row}/F{curr_row}, 0)"
+        
+        ws.append([
+            "",
+            row["Operador_Sol"],
             row["Vehículo"],
             row["Placa"],
             "OFICIAL",
-            float(row["Importe ($)"]),
+            float(row["Importe_Sol"]),
             "MAGNA",
-            row["Actividad"]
-        ])
-        for c in range(1, 10):
-            cell = ws1.cell(row=current_r, column=c)
-            cell.font = fuente_normal
-            cell.border = thin_border
-            if c == 7:
-                cell.number_format = '$#,##0.00'
-                cell.alignment = Alignment(horizontal="right")
-            elif c in [1, 5, 6, 8]:
-                cell.alignment = Alignment(horizontal="center")
-                
-    end_row = start_row + len(df_sol_activas) - 1
-    if len(df_sol_activas) > 0:
-        total_row_sol = end_row + 1
-        ws1.cell(row=total_row_sol, column=6, value="TOTAL AUTORIZADO:").font = fuente_bold
-        total_cell = ws1.cell(row=total_row_sol, column=7, value=f"=SUM(G{start_row}:G{end_row})")
-        total_cell.font = fuente_bold
-        total_cell.number_format = '$#,##0.00'
-        total_cell.fill = fill_total
-        ws1.cell(row=total_row_sol, column=6).alignment = Alignment(horizontal="right")
-
-    # ---------------------------------------------
-    # PESTAÑA 2: CARGA REAL Y COMPARATIVA CON FÓRMULAS
-    # ---------------------------------------------
-    ws2 = wb.create_sheet(title="2. CONCILIACION Y CARGA REAL")
-    ws2.views.sheetView[0].showGridLines = True
-    
-    ws2["A1"] = "H. AYUNTAMIENTO DE CAMPECHE"
-    ws2["A1"].font = fuente_titulo
-    ws2["A2"] = "AUDITORÍA Y COMPARATIVO DE EJECUCIÓN (SOLICITADO VS REAL)"
-    ws2["A2"].font = fuente_sub
-    
-    headers_real = [
-        "NO.", "ÁREA / SOLICITANTE", "VEHÍCULO", "PLACA", "OPERADOR", 
-        "SOLICITADO ($)", "CARGA REAL ($)", "DIFERENCIA / AHORRO ($)", "% EJERCIDO", "ESTATUS"
-    ]
-    ws2.append([])
-    ws2.append([])
-    ws2.append(headers_real)
-    
-    r_header_idx = 5
-    for col_idx, h in enumerate(headers_real, 1):
-        cell = ws2.cell(row=r_header_idx, column=col_idx)
-        cell.font = fuente_header
-        cell.fill = fill_header_real
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        
-    start_r2 = 6
-    for i, row in df_real.iterrows():
-        curr = start_r2 + i
-        solicitado_val = float(df_solicitado.loc[df_solicitado['row'] == row['row'], 'Importe ($)'].values[0])
-        real_val = float(row["Importe ($)"])
-        
-        # Inserción de fórmulas automatizadas en Excel
-        formula_dif = f"=F{curr}-G{curr}"
-        formula_pct = f"=IF(F{curr}>0, G{curr}/F{curr}, 0)"
-        formula_est = f'=IF(H{curr}=0, "CARGA COMPLETA", IF(H{curr}>0, "CON AHORRO/REMANENTE", "EXCEDIDO"))'
-        
-        ws2.append([
-            i + 1,
-            row["Solicitante"],
+            row["Actividad"],
+            "",
+            row["Operador_Real"] if row["Operador_Real"] else row["Operador_Sol"],
             row["Vehículo"],
             row["Placa"],
-            row["Operador / Encargado"],
-            solicitado_val,
-            real_val,
-            formula_dif,
-            formula_pct,
-            formula_est
+            float(row["Importe_Real"]),
+            f_dif,
+            f_pct
         ])
         
-        for c in range(1, 11):
-            cell = ws2.cell(row=curr, column=c)
-            cell.font = fuente_normal
-            cell.border = thin_border
-            if c in [6, 7, 8]:
-                cell.number_format = '$#,##0.00'
-                cell.alignment = Alignment(horizontal="right")
-            elif c == 9:
-                cell.number_format = '0.0%'
-                cell.alignment = Alignment(horizontal="center")
-            elif c in [1, 4, 10]:
-                cell.alignment = Alignment(horizontal="center")
+        for c in range(2, 16):
+            if c == 9:
+                continue
+            celda = ws.cell(row=curr_row, column=c)
+            celda.font = fuente_normal
+            celda.border = border_fino
+            if c in [6, 13, 14]:
+                celda.number_format = '$#,##0.00'
+                celda.alignment = Alignment(horizontal="right")
+            elif c == 15:
+                celda.number_format = '0.0%'
+                celda.alignment = Alignment(horizontal="center")
+            elif c in [4, 5, 7, 12]:
+                celda.alignment = Alignment(horizontal="center")
                 
-    end_r2 = start_r2 + len(df_real) - 1
-    total_r2 = end_r2 + 1
+    end_row = start_row + len(df_datos) - 1
+    total_row = end_row + 1
     
-    ws2.cell(row=total_r2, column=5, value="TOTALES:").font = fuente_bold
-    ws2.cell(row=total_r2, column=5).alignment = Alignment(horizontal="right")
+    ws.cell(row=total_row, column=5, value="TOTAL SOLICITADO:").font = fuente_bold
+    ws.cell(row=total_row, column=5).alignment = Alignment(horizontal="right")
+    c_tot_sol = ws.cell(row=total_row, column=6, value=f"=SUM(F{start_row}:F{end_row})")
+    c_tot_sol.font = fuente_bold
+    c_tot_sol.number_format = '$#,##0.00'
+    c_tot_sol.fill = fill_total
     
-    cell_tot_sol = ws2.cell(row=total_r2, column=6, value=f"=SUM(F{start_r2}:F{end_r2})")
-    cell_tot_sol.font = fuente_bold
-    cell_tot_sol.number_format = '$#,##0.00'
-    cell_tot_sol.fill = fill_total
+    ws.cell(row=total_row, column=12, value="TOTAL REAL:").font = fuente_bold
+    ws.cell(row=total_row, column=12).alignment = Alignment(horizontal="right")
+    c_tot_real = ws.cell(row=total_row, column=13, value=f"=SUM(M{start_row}:M{end_row})")
+    c_tot_real.font = fuente_bold
+    c_tot_real.number_format = '$#,##0.00'
+    c_tot_real.fill = fill_total
     
-    cell_tot_real = ws2.cell(row=total_r2, column=7, value=f"=SUM(G{start_r2}:G{end_r2})")
-    cell_tot_real.font = fuente_bold
-    cell_tot_real.number_format = '$#,##0.00'
-    cell_tot_real.fill = fill_total
+    c_tot_dif = ws.cell(row=total_row, column=14, value=f"=F{total_row}-M{total_row}")
+    c_tot_dif.font = fuente_bold
+    c_tot_dif.number_format = '$#,##0.00'
+    c_tot_dif.fill = fill_total
     
-    cell_tot_dif = ws2.cell(row=total_r2, column=8, value=f"=F{total_r2}-G{total_r2}")
-    cell_tot_dif.font = fuente_bold
-    cell_tot_dif.number_format = '$#,##0.00'
-    cell_tot_dif.fill = fill_total
-    
-    cell_tot_pct = ws2.cell(row=total_r2, column=9, value=f"=IF(F{total_r2}>0, G{total_r2}/F{total_r2}, 0)")
-    cell_tot_pct.font = fuente_bold
-    cell_tot_pct.number_format = '0.0%'
-    cell_tot_pct.fill = fill_total
-    
-    # Autoajuste de anchos de columna
-    for sheet in [ws1, ws2]:
-        for col in sheet.columns:
-            max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col[0].column)
-            sheet.column_dimensions[col_letter].width = max(max_len + 3, 12)
+    for col in ws.columns:
+        col_letter = get_column_letter(col[0].column)
+        if col_letter in ['A', 'I']:
+            ws.column_dimensions[col_letter].width = 3
+        else:
+            ws.column_dimensions[col_letter].width = 22
             
     wb.save(output)
     return output.getvalue()
@@ -368,14 +315,14 @@ def generar_pdf_oficial(df_cargas, f_elab, f_prog):
         total = 0.0
         for _, row in df_cargas.iterrows():
             data_row = table.row()
-            data_row.cell(str(row["Operador / Encargado"]).strip())
+            data_row.cell(str(row["Operador_Sol"]).strip())
             data_row.cell(str(row["Vehículo"]).strip())
             data_row.cell(str(row["Placa"]).strip())
             data_row.cell('OFICIAL')
-            data_row.cell(f"${float(row['Importe ($)']):,.2f}")
+            data_row.cell(f"${float(row['Importe_Sol']):,.2f}")
             data_row.cell('MAGNA')
             data_row.cell(str(row["Actividad"]).strip())
-            total += float(row["Importe ($)"])
+            total += float(row["Importe_Sol"])
             
         pdf.set_font('Helvetica', 'B', 8)
         tot_row = table.row()
@@ -497,7 +444,7 @@ if not es_admin:
                 with c_op:
                     val_encargado = st.text_input(
                         "Nombre del Conductor / Operador",
-                        value=row["Operador / Encargado"],
+                        value=row["Operador_Sol"],
                         key=f"op_{row['row']}",
                         disabled=sistema_bloqueado,
                         placeholder="Ej. Juan Pérez"
@@ -505,7 +452,7 @@ if not es_admin:
                 with c_imp:
                     val_importe = st.number_input(
                         "Monto ($)",
-                        value=float(row["Importe ($)"]),
+                        value=float(row["Importe_Sol"]),
                         step=50.0,
                         min_value=0.0,
                         key=f"imp_{row['row']}",
@@ -519,12 +466,14 @@ if not es_admin:
                     "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"],
                     "Actividad": row["Actividad"],
-                    "Operador / Encargado": val_encargado,
-                    "Importe ($)": val_importe
+                    "Operador_Sol": val_encargado,
+                    "Importe_Sol": val_importe,
+                    "Operador_Real": row["Operador_Real"],
+                    "Importe_Real": row["Importe_Real"]
                 })
         
         df_edit_movil = pd.DataFrame(nuevos_valores)
-        total_capturado = df_edit_movil["Importe ($)"].sum()
+        total_capturado = df_edit_movil["Importe_Sol"].sum()
         saldo_restante = presupuesto_propio - total_capturado
         
         st.divider()
@@ -543,7 +492,7 @@ if not es_admin:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
                 with st.spinner("Guardando en Google Sheets..."):
-                    if guardar_en_sheets(df_edit_movil):
+                    if guardar_en_sheets(df_edit_movil, tipo="solicitado"):
                         st.success("✅ ¡Solicitud guardada con éxito!")
                         st.rerun()
                     else:
@@ -561,50 +510,49 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_seccion1, tab_seccion2, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
-        "1️⃣ SECCIÓN: Carga Solicitada (Preventiva)", 
-        "2️⃣ SECCIÓN: Carga Real y Conciliación",
+    tab_panel_principal, tab_historico, tab_avisos, tab_mantenimiento = st.tabs([
+        "📊 Panel de Cargas (Solicitada y Real)",
         "📁 Histórico de Cargas",
         "📢 Centro de Avisos",
         "🛠️ Modo Pruebas"
     ])
 
-    df_solo_cargas = df_actual[df_actual["Importe ($)"] > 0].copy()
+    df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
 
-    # ==========================================
-    # SECCIÓN 1: CARGA SOLICITADA
-    # ==========================================
-    with tab_seccion1:
-        st.markdown("#### 📋 1. Solicitudes Semanales Capturadas por las Áreas")
+    with tab_panel_principal:
+        # Métricas Globales
+        total_global_sol = df_actual["Importe_Sol"].sum()
+        total_global_real = df_actual["Importe_Real"].sum()
+        ahorro_vs_sol = total_global_sol - total_global_real
+        saldo_global_disponible = PRESUPUESTO_GLOBAL - total_global_real
         
-        # Métricas de Saldo
-        total_global_sol = df_actual["Importe ($)"].sum()
-        saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("1. Total Solicitado", f"${total_global_sol:,.2f}")
+        m2.metric("2. Total Real Ejercido", f"${total_global_real:,.2f}")
+        m3.metric("Ahorro / No Ejercido", f"${ahorro_vs_sol:,.2f}", delta_color="normal")
+        m4.metric("Presupuesto Disponible", f"${saldo_global_disponible:,.2f}", delta_color="normal")
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c2.metric("Total Solicitado", f"${total_global_sol:,.2f}", delta=f"{total_global_sol - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        c3.metric("Saldo Disponible", f"${saldo_global_sol:,.2f}", delta_color="normal" if saldo_global_sol >= 0 else "off")
-        c4.metric("Bolsa Comodín", "$200.00")
-        
-        st.markdown("##### 🚗 Lista Oficial de Unidades que Van a Cargar")
-        if df_solo_cargas.empty:
-            st.warning("⚠️ No hay unidades con monto asignado actualmente.")
+        st.divider()
+
+        # SECCIÓN 1: CARGA SOLICITADA (PREVENTIVA)
+        st.markdown("### 📋 Sección 1: Carga Solicitada Oficial")
+        if df_solo_cargas_sol.empty:
+            st.info("ℹ️ Aún no hay unidades con solicitud de carga.")
         else:
             st.dataframe(
-                df_solo_cargas[["Operador / Encargado", "Vehículo", "Placa", "Importe ($)", "Solicitante", "Actividad"]],
+                df_solo_cargas_sol[["Operador_Sol", "Vehículo", "Placa", "Importe_Sol", "Solicitante", "Actividad"]],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Importe ($)": st.column_config.NumberColumn(format="$%.2f"),
-                    "Actividad": st.column_config.TextColumn("Actividad Oficial", width="large")
+                    "Operador_Sol": st.column_config.TextColumn("Encargado"),
+                    "Importe_Sol": st.column_config.NumberColumn("Importe Solicitado ($)", format="$%.2f"),
+                    "Actividad": st.column_config.TextColumn("Actividad", width="large")
                 }
             )
             
-            st.divider()
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                pdf_bytes = generar_pdf_oficial(df_solo_cargas, f_elab, f_prog)
+            c_pdf1, c_pdf2 = st.columns(2)
+            with c_pdf1:
+                pdf_bytes = generar_pdf_oficial(df_solo_cargas_sol, f_elab, f_prog)
                 st.download_button(
                     label="📄 Descargar Oficio Oficial en PDF",
                     data=pdf_bytes,
@@ -612,75 +560,51 @@ else:
                     mime="application/pdf",
                     use_container_width=True
                 )
-            with col_d2:
-                # Generación de Excel con ambas pestañas automatizadas
-                excel_bytes = generar_excel_magico(df_actual, df_actual, f_elab, f_prog)
+            with c_pdf2:
+                excel_bytes = generar_excel_completo(df_actual, f_elab, f_prog)
                 st.download_button(
-                    label="📥 Descargar Libro de Excel Automatizado (.xlsx)",
+                    label="📥 Descargar Excel con Ambas Secciones (.xlsx)",
                     data=excel_bytes,
                     file_name=f"CONTROL_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
 
-    # ==========================================
-    # SECCIÓN 2: CARGA REAL Y CONCILIACIÓN
-    # ==========================================
-    with tab_seccion2:
-        st.markdown("#### 🔍 2. Verificación de Cargas Reales y Conciliación")
-        st.caption("Ingresa lo que realmente cargó cada vehículo al presentar sus comprobantes para calcular diferencias y remanentes:")
+        st.divider()
+
+        # SECCIÓN 2: CARGA REAL Y AUDITORÍA
+        st.markdown("### 🔍 Sección 2: Carga Real y Conciliación")
+        st.caption("Captura el operador real e importe comprobado para conciliar y guardar en Sheets:")
         
-        # Tabla editable para ingresar montos reales
         df_real_edit = st.data_editor(
             df_actual.copy(),
             use_container_width=True,
-            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad"],
+            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Importe_Sol"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placas"),
-                "Operador / Encargado": st.column_config.TextColumn("Operador"),
-                "Importe ($)": st.column_config.NumberColumn("Monto Realmente Cargado ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "row": None, "Actividad": None
+                "Importe_Sol": st.column_config.NumberColumn("Solicitado ($)", format="$%.2f"),
+                "Operador_Real": st.column_config.TextColumn("Operador que Cargó"),
+                "Importe_Real": st.column_config.NumberColumn("Monto Realmente Cargado ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "row": None, "Actividad": None, "Operador_Sol": None
             },
             hide_index=True,
-            key="editor_seccion_real"
+            key="editor_seccion_real_unificada"
         )
         
-        total_real_ejercido = df_real_edit["Importe ($)"].sum()
-        remanente_total = PRESUPUESTO_GLOBAL - total_real_ejercido
-        ahorro_vs_solicitado = total_global_sol - total_real_ejercido
-        
-        st.divider()
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Total Solicitado", f"${total_global_sol:,.2f}")
-        r2.metric("Total Realmente Ejercido", f"${total_real_ejercido:,.2f}")
-        r3.metric("Ahorro vs Solicitado", f"${ahorro_vs_solicitado:,.2f}", delta_color="normal")
-        r4.metric("Saldo Global Recuperado", f"${remanente_total:,.2f}", delta_color="normal")
-        
-        st.write("")
-        c_btn1, c_btn2, c_btn3 = st.columns(3)
-        
-        with c_btn1:
-            if st.button("💾 1. Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
+        btn_c1, btn_c2 = st.columns(2)
+        with btn_c1:
+            if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
                 with st.spinner("Actualizando Google Sheets..."):
-                    if guardar_en_sheets(df_real_edit, f_elab, f_prog):
-                        st.success("✅ Datos actualizados en Google Sheets.")
+                    if guardar_en_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog):
+                        st.success("✅ Cargas reales sincronizadas correctamente.")
                         st.rerun()
                     else:
-                        st.error("❌ Error al actualizar.")
-        with c_btn2:
-            excel_magico_bytes = generar_excel_magico(df_actual, df_real_edit, f_elab, f_prog)
-            st.download_button(
-                label="📊 2. Descargar Excel con Fórmulas (.xlsx)",
-                data=excel_magico_bytes,
-                file_name=f"CONCILIACION_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        with c_btn3:
-            if st.button("📁 3. Archivar en Histórico Oficial", type="secondary", use_container_width=True):
-                cargas_finales = df_real_edit[df_real_edit["Importe ($)"] > 0].copy()
+                        st.error("❌ Error al guardar.")
+        with btn_c2:
+            if st.button("📁 Archivar en Histórico Semanal", type="secondary", use_container_width=True):
+                cargas_finales = df_real_edit[df_real_edit["Importe_Real"] > 0].copy()
                 if cargas_finales.empty:
                     st.warning("No hay registros mayores a $0 para archivar.")
                 else:
@@ -693,10 +617,10 @@ else:
                         "fecha_programacion": f_prog.strftime("%d/%m/%Y"),
                         "fecha_registro_sistema": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
                         "total_solicitado": float(total_global_sol),
-                        "total_ejercido": float(total_real_ejercido),
-                        "ahorro_remanente": float(remanente_total),
+                        "total_ejercido": float(total_global_real),
+                        "ahorro_remanente": float(saldo_global_disponible),
                         "total_vehiculos": int(len(cargas_finales)),
-                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador / Encargado", "Importe ($)"]].to_dict(orient="records")
+                        "detalle": cargas_finales[["Solicitante", "Vehículo", "Placa", "Operador_Real", "Importe_Real"]].to_dict(orient="records")
                     }
                     historial.insert(0, registro_cierre)
                     guardar_historico(historial)
@@ -753,7 +677,7 @@ else:
                     df_detalle_folio,
                     use_container_width=True,
                     hide_index=True,
-                    column_config={"Importe ($)": st.column_config.NumberColumn(format="$%.2f")}
+                    column_config={"Importe_Real": st.column_config.NumberColumn("Importe Real ($)", format="$%.2f")}
                 )
 
     # ==========================================
@@ -815,20 +739,21 @@ else:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
         with st.container(border=True):
-            st.subheader("🧹 Reiniciar / Limpiar Cargas a $0.00")
-            st.write("Esta acción regresa todos los importes a **$0.00** en Google Sheets para iniciar una nueva semana de captura.")
+            st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
+            st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
             
-            if st.button("🗑️ Limpiar Todo a $0.00", type="secondary", use_container_width=True):
+            if st.button("🗑️ Limpiar Todo y Restablecer a $0.00", type="secondary", use_container_width=True):
                 df_limpio = df_actual.copy()
-                df_limpio["Operador / Encargado"] = ""
-                df_limpio["Importe ($)"] = 0.0
+                df_limpio["Operador_Sol"] = ""
+                df_limpio["Importe_Sol"] = 0.0
+                df_limpio["Operador_Real"] = ""
+                df_limpio["Importe_Real"] = 0.0
                 
-                with st.spinner("Limpiando registros en Google Sheets..."):
-                    if guardar_en_sheets(df_limpio, f_elab, f_prog):
-                        st.success("✅ Sistema restablecido a $0.00.")
-                        st.rerun()
-                    else:
-                        st.error("❌ Error al reiniciar datos.")
+                with st.spinner("Restableciendo registros en Google Sheets..."):
+                    guardar_en_sheets(df_limpio, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    guardar_en_sheets(df_limpio, tipo="real", f_elab=f_elab, f_prog=f_prog)
+                    st.success("✅ Ambas secciones restablecidas a $0.00.")
+                    st.rerun()
 
         with st.container(border=True):
             st.subheader("⏰ Desbloqueo Extemporáneo de Horario (Bypass 3:00 PM)")
