@@ -5,6 +5,7 @@ import pytz
 import requests
 import json
 import io
+import os
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
@@ -13,13 +14,11 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# CONFIGURACIONES GENERALES
+# CONFIGURACIONES GENERALES Y HORARIO
 # ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
-HORA_LIMITE = time(15, 0)  # 3:00 PM
+HORA_LIMITE = time(15, 10)  # ⏰ 3:10 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
-
-HABILITAR_CAPTURA_24_7 = True  
 
 CONFIG_FILE = "config_sistema.json"
 
@@ -39,7 +38,6 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# Mapeo exacto de las filas 12 a la 24 de tu formato oficial
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -65,6 +63,24 @@ USUARIOS_PASSWORD = {
     "PEREZ MAZIN CARLOS EDUARDO": "notif123",
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
+
+# --- PERSISTENCIA LOCAL DE CONFIGURACIÓN ---
+def leer_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Por defecto el bloqueo a las 3:10 PM está activo (desbloqueo_horario = False)
+    return {"desbloqueo_horario": False}
+
+def guardar_config(cfg):
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass
 
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
@@ -141,7 +157,7 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         return False
 
 # ==========================================
-# GENERADOR DE EXCEL OFICIAL CON FILAS OCULTAS
+# GENERADORES DE ARCHIVOS OFICIALES
 # ==========================================
 def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     output = io.BytesIO()
@@ -249,7 +265,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
             
         ws.row_dimensions[r_num].height = 24
         
-        # Ocultar fila si no tiene importe asignado
+        # Ocultar fila si el vehículo no carga (Importe == $0)
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
@@ -268,7 +284,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     for c_rest in [2, 3, 4, 5, 8, 9]:
         ws.cell(row=25, column=c_rest).border = border_cuadricula
 
-    # Anchos de columna exactos
     anchos_cols = {
         'A': 3, 'B': 24, 'C': 16, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52
     }
@@ -357,7 +372,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO
+# 2. ENCABEZADO Y EVALUACIÓN DE HORARIO
 # ==========================================
 usuario_real = st.session_state.usuario_logueado
 es_admin_real = (usuario_real == "LIAN")
@@ -365,6 +380,13 @@ usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.sess
 es_admin = (usuario_efectivo == "LIAN")
 
 ahora_local = datetime.now(ZONA_HORARIA)
+hora_actual = ahora_local.time()
+
+cfg_actual = leer_config()
+desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
+
+# 👉 REGLA: Los usuarios se bloquean a las 3:10 PM a excepción de LIAN o si activas el desbloqueo
+sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
 with c1:
@@ -373,13 +395,17 @@ with c1:
         st.warning(f"🧪 **MODO DE PRUEBA ACTIVO**: Simulando vista como **{usuario_efectivo}**")
     else:
         st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_efectivo}**")
-    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | 🟢 Horario Abierto para Captura")
+        
+    estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado (Límite 3:10 PM)"
+    if desbloqueo_activo:
+        estado_horario += " (⚡ Desbloqueo temporal activo)"
+    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
 
 with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
         st.session_state.df_datos = obtener_datos_sheets(forzar=True)
-        st.toast("Datos actualizados desde Google Sheets.", icon="✅")
+        st.toast("Datos sincronizados con Google Sheets.", icon="✅")
         st.rerun()
 
 with c3:
@@ -403,7 +429,10 @@ if not es_admin:
     presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
-    st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
+    if sistema_bloqueado:
+        st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:10 PM)**. La captura semanal ha finalizado.")
+    else:
+        st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
@@ -420,6 +449,7 @@ if not es_admin:
                         "Nombre del Conductor / Operador",
                         value=row["Operador_Sol"],
                         key=f"op_{row['row']}",
+                        disabled=sistema_bloqueado,
                         placeholder="Ej. Juan Pérez"
                     )
                 with c_imp:
@@ -429,6 +459,7 @@ if not es_admin:
                         step=50.0,
                         min_value=0.0,
                         key=f"imp_{row['row']}",
+                        disabled=sistema_bloqueado,
                         format="%.2f"
                     )
                 
@@ -457,7 +488,7 @@ if not es_admin:
         if total_capturado > presupuesto_propio:
             st.error(f"⚠️ Excedes tu presupuesto por **${abs(saldo_restante):,.2f} MXN**.")
             
-        btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True)
+        btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True, disabled=sistema_bloqueado)
         
         if btn_guardar:
             if total_capturado > presupuesto_propio:
@@ -662,10 +693,33 @@ else:
             st.success("✅ Cargas reales sincronizadas correctamente en Google Sheets.")
             st.rerun()
 
-    # 5. MODO PRUEBAS Y MANTENIMIENTO
+    # 5. MODO PRUEBAS Y MANTENIMIENTO (CONTROL DE HORARIO)
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
+        # ⏰ CONTROL DE BLOQUEO DE 3:10 PM
+        with st.container(border=True):
+            st.subheader("⏰ Control de Bloqueo a las 3:10 PM")
+            st.write(
+                "Por regla general, **todos los solicitantes quedan bloqueados automáticamente a las 3:10 PM** (tú como Administrador siempre tienes acceso)."
+            )
+            
+            estado_desbloqueo = cfg_actual.get("desbloqueo_horario", False)
+            toggle_horario = st.toggle(
+                "⚡ Desbloquear a todos los usuarios (Permitir captura 24/7 fuera de las 3:10 PM)", 
+                value=estado_desbloqueo
+            )
+            
+            if toggle_horario != estado_desbloqueo:
+                cfg_actual["desbloqueo_horario"] = toggle_horario
+                guardar_config(cfg_actual)
+                if toggle_horario:
+                    st.toast("Captura 24/7 HABILITADA para todos.", icon="🟢")
+                else:
+                    st.toast("Bloqueo de 3:10 PM ACTIVADO para usuarios.", icon="🔒")
+                st.rerun()
+
+        # 🧹 LIMPIEZA DE PRUEBAS
         with st.container(border=True):
             st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
             st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
@@ -682,10 +736,7 @@ else:
                 st.success("✅ Todas las unidades restablecidas a $0.00.")
                 st.rerun()
 
-        with st.container(border=True):
-            st.subheader("⏰ Horario de Captura")
-            st.success("🟢 Horario 24/7 ACTIVO para todas las áreas.")
-
+        # 🧪 SIMULADOR
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
