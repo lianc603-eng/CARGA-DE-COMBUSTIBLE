@@ -13,7 +13,6 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Presupuestos base fijos autorizados (Suma = $3,600.00 | Restante de $200.00 a libre asignación de LIAN)
 PRESUPUESTO_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": 200.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
@@ -24,7 +23,6 @@ PRESUPUESTO_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# Catálogo exacto de vehículos y placas según tu imagen oficial
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7"},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7"},
@@ -118,7 +116,7 @@ if st.session_state.usuario_logueado is None:
     st.stop()
 
 # ==========================================
-# 2. ENCABEZADO Y REVISIÓN DE HORARIO
+# 2. ENCABEZADO Y CONTROL DE HORARIO
 # ==========================================
 usuario = st.session_state.usuario_logueado
 es_admin = (usuario == "LIAN")
@@ -225,9 +223,73 @@ else:
     with col_f2:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
-    tab_gral, tab_saldos = st.tabs(["📋 Tabla Consolidada General", "📊 Monitoreo de Presupuesto por Solicitante"])
+    tab_saldos, tab_gral = st.tabs(["📊 Monitoreo y Saldo por Solicitante", "📋 Tabla Consolidada General"])
+
+    with tab_saldos:
+        st.markdown("##### 💵 Balance Financiero de Solicitudes Semanales")
+        
+        # Generar desglose financiero por solicitante
+        filas_reporte = []
+        suma_solicitada_base = 0.0
+        
+        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
+            sub_df = df_actual[df_actual["Solicitante"] == sol]
+            solicitado = sub_df["Importe ($)"].sum()
+            disponible = p_base - solicitado
+            pct_usado = (solicitado / p_base * 100) if p_base > 0 else 0
+            unidades_con_carga = len(sub_df[sub_df["Importe ($)"] > 0])
+            total_unidades = len(sub_df)
+            
+            suma_solicitada_base += solicitado
+            
+            # Estatus visual
+            if disponible == 0:
+                estatus = "✅ 100% Ejercido"
+            elif disponible > 0 and solicitado > 0:
+                estatus = "🟡 Parcialmente Cargado"
+            elif disponible < 0:
+                estatus = "⚠️ Excedido"
+            else:
+                estatus = "⚪ Sin Carga Registrada"
+                
+            filas_reporte.append({
+                "Solicitante": sol,
+                "Presupuesto Base": p_base,
+                "Monto Solicitado": solicitado,
+                "Saldo Disponible": disponible,
+                "% Ejercido": f"{pct_usado:.1f}%",
+                "Unidades Activas": f"{unidades_con_carga} de {total_unidades}",
+                "Estatus": estatus
+            })
+            
+        df_reporte_admin = pd.DataFrame(filas_reporte)
+        
+        # Tarjetas de resumen ejecutivo
+        total_global_solicitado = df_actual["Importe ($)"].sum()
+        saldo_global_disponible = PRESUPUESTO_GLOBAL - total_global_solicitado
+        
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        c_m1.metric("Presupuesto Total Autorizado", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c_m2.metric("Total Ya Solicitado", f"${total_global_solicitado:,.2f}", delta=f"{total_global_solicitado - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
+        c_m3.metric("Saldo Disponible Global", f"${saldo_global_disponible:,.2f}", delta_color="normal" if saldo_global_disponible >= 0 else "off")
+        c_m4.metric("Bolsa Comodín Admin", "$200.00", help="Margen extra para asignar a cualquier unidad")
+        
+        st.write("")
+        
+        # Tabla detallada con formato de moneda
+        st.dataframe(
+            df_reporte_admin,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
+                "Monto Solicitado": st.column_config.NumberColumn(format="$%.2f"),
+                "Saldo Disponible": st.column_config.NumberColumn(format="$%.2f"),
+            }
+        )
 
     with tab_gral:
+        st.markdown("##### ✏️ Modificación Directa de Unidades e Importes")
         df_admin_edit = st.data_editor(
             df_actual,
             use_container_width=True,
@@ -242,48 +304,10 @@ else:
             key="editor_admin"
         )
         
-        total_global = df_admin_edit["Importe ($)"].sum()
-        saldo_global = PRESUPUESTO_GLOBAL - total_global
-        
-        gm1, gm2, gm3, gm4 = st.columns(4)
-        gm1.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        gm2.metric("Presupuesto Base", "$3,600.00")
-        gm3.metric("Total Distribuido", f"${total_global:,.2f}", delta=f"{total_global - PRESUPUESTO_GLOBAL:,.2f}", delta_color="inverse")
-        gm4.metric("Saldo Disponible Total", f"${saldo_global:,.2f}", delta_color="normal" if saldo_global >= 0 else "off")
-        
-        if total_global > PRESUPUESTO_GLOBAL:
-            st.error(f"❌ Exceso de presupuesto por **${abs(saldo_global):,.2f} MXN**.")
-        elif total_global == PRESUPUESTO_GLOBAL:
-            st.success("✅ Presupuesto distribuido al 100% ($3,800.00 MXN con reserva asignada).")
-        else:
-            st.info(f"ℹ️ Saldo restante disponible: **${saldo_global:,.2f} MXN** (incluye los $200 de tu bolsa comodín).")
-        
         if st.button("💾 Sincronizar y Guardar Todo en Google Sheets", type="primary", use_container_width=True):
             with st.spinner("Actualizando Google Sheets..."):
                 if guardar_en_sheets(df_admin_edit, f_elab, f_prog):
                     st.success("✅ Hoja de cálculo actualizada con todas las cargas y fechas oficiales.")
+                    st.rerun()
                 else:
                     st.error("❌ Error al guardar en Google Sheets.")
-
-    with tab_saldos:
-        st.subheader("Estado Presupuestal por Solicitante")
-        st.caption("Los solicitantes tienen como base $3,600.00. Los $200.00 de reserva los asignas tú a cualquier unidad:")
-        
-        resumen_solicitantes = []
-        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
-            filas_sol = df_admin_edit[df_admin_edit["Solicitante"] == sol]
-            gastado = filas_sol["Importe ($)"].sum()
-            restante = p_base - gastado
-            unidades_cargando = len(filas_sol[filas_sol["Importe ($)"] > 0])
-            
-            resumen_solicitantes.append({
-                "Solicitante": sol,
-                "Presupuesto Base": f"${p_base:,.2f}",
-                "Total Solicitado": f"${gastado:,.2f}",
-                "Diferencia vs Base": f"${restante:,.2f}",
-                "Unidades con Carga": f"{unidades_cargando} unidad(es)",
-                "Estado": "✅ En Presupuesto Base" if restante >= 0 else "⚡ Con Apoyo de Reserva ($200)"
-            })
-            
-        df_resumen = pd.DataFrame(resumen_solicitantes)
-        st.dataframe(df_resumen, use_container_width=True, hide_index=True)
