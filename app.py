@@ -17,14 +17,14 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # CONFIGURACIONES GENERALES Y HORARIO
 # ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
-BOLSA_COMODIN = 200.00
+BOLSA_COMODIN_TOTAL = 200.00
 HORA_LIMITE = time(15, 10)  # ⏰ 3:10 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-PRESUPUESTO_POR_SOLICITANTE = {
+PRESUPUESTO_BASE_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": 200.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
@@ -34,8 +34,16 @@ PRESUPUESTO_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# $3,600.00 exactos asignados a los solicitantes
-PRESUPUESTO_ASIGNADO_SOLICITANTES = sum(PRESUPUESTO_POR_SOLICITANTE.values())
+# CATÁLOGO OFICIAL DE OPERADORES POR SOLICITANTE (CORREGIDO FARID PAVON)
+OPERADORES_POR_SOLICITANTE = {
+    "COB CHAVEZ NARCISO DEL JESUS": ["JESUS COB"],
+    "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
+    "DE LA CRUZ PEREZ WILLIAN ARLEY": ["WILLIAN PEREZ"],
+    "NOEL CHAN": ["AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH"],
+    "LIAN": ["FRANCISCO ALONZO"],
+    "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK"],
+    "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA"],
+}
 
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
@@ -67,7 +75,7 @@ USUARIOS_PASSWORD = {
     "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
 }
 
-# --- PERSISTENCIA LOCAL DE CONFIGURACIÓN ---
+# --- PERSISTENCIA LOCAL ---
 def leer_config():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -75,7 +83,11 @@ def leer_config():
                 return json.load(f)
         except Exception:
             pass
-    return {"desbloqueo_horario": False}
+    return {
+        "desbloqueo_horario": False,
+        "asignacion_comodin": {},
+        "cesion_lian": {}
+    }
 
 def guardar_config(cfg):
     try:
@@ -83,6 +95,26 @@ def guardar_config(cfg):
             json.dump(cfg, f)
     except Exception:
         pass
+
+def calcular_presupuesto_efectivo():
+    cfg = leer_config()
+    asig_comodin = cfg.get("asignacion_comodin", {})
+    cesion_lian = cfg.get("cesion_lian", {})
+    
+    presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
+    
+    for solicitante, extra in asig_comodin.items():
+        if solicitante in presupuestos:
+            presupuestos[solicitante] += float(extra)
+            
+    total_cedido_lian = 0.0
+    for solicitante, monto in cesion_lian.items():
+        if solicitante in presupuestos and solicitante != "LIAN":
+            presupuestos[solicitante] += float(monto)
+            total_cedido_lian += float(monto)
+            
+    presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
+    return presupuestos
 
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
@@ -184,7 +216,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         bottom=Side(style='thin', color='000000')
     )
 
-    # Cabecera Institucional
     ws["D2"] = "H. AYUNTAMIENTO DE CAMPECHE"
     ws["D2"].font = fuente_titulo
     ws["D2"].alignment = Alignment(horizontal="center", vertical="center")
@@ -209,7 +240,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     ws["G7"] = f_prog.strftime("%d/%m/%Y")
     ws["G7"].font = fuente_sub
 
-    # Encabezados de Tabla Oficial
     headers_oficiales = [
         (2, "NOMBRE DEL\nENCARGADO"),
         (3, "VEHÍCULO"),
@@ -229,7 +259,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[11].height = 28
 
-    # Filas 12 a 24
     for r_num in range(12, 25):
         row_info = df_datos[df_datos["row"] == r_num]
         
@@ -270,7 +299,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
-    # Fila 25: TOTAL
     c_lbl_tot = ws.cell(row=25, column=6, value="TOTAL")
     c_lbl_tot.font = fuente_bold
     c_lbl_tot.alignment = Alignment(horizontal="right", vertical="center")
@@ -285,9 +313,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     for c_rest in [2, 3, 4, 5, 8, 9]:
         ws.cell(row=25, column=c_rest).border = border_cuadricula
 
-    anchos_cols = {
-        'A': 3, 'B': 24, 'C': 16, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52
-    }
+    anchos_cols = {'A': 3, 'B': 24, 'C': 16, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52}
     for col_letra, ancho in anchos_cols.items():
         ws.column_dimensions[col_letra].width = ancho
 
@@ -385,8 +411,9 @@ hora_actual = ahora_local.time()
 
 cfg_actual = leer_config()
 desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
-
 sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
+
+presupuestos_actuales = calcular_presupuesto_efectivo()
 
 c1, c2, c3 = st.columns([2.5, 1, 0.8])
 with c1:
@@ -423,16 +450,18 @@ with c3:
 df_actual = obtener_datos_sheets()
 
 # ==========================================
-# 3. VISTA SOLICITANTE (MÓVIL)
+# 3. VISTA SOLICITANTE (CON LISTA DE OPERADORES)
 # ==========================================
 if not es_admin:
-    presupuesto_propio = PRESUPUESTO_POR_SOLICITANTE.get(usuario_efectivo, 0.00)
+    presupuesto_propio = presupuestos_actuales.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
+    
+    lista_operadores_autorizados = OPERADORES_POR_SOLICITANTE.get(usuario_efectivo, [])
     
     if sistema_bloqueado:
         st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:10 PM)**. La captura semanal ha finalizado.")
     else:
-        st.caption("📱 Llena los datos de los vehículos que cargarán esta semana y presiona **Guardar Solicitud**:")
+        st.caption("📱 Selecciona quién conducirá y el importe de cada vehículo para esta semana:")
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
@@ -444,14 +473,23 @@ if not es_admin:
                 
                 c_op, c_imp = st.columns([1.5, 1])
                 
+                opciones_operadores = [""] + lista_operadores_autorizados
+                val_actual = str(row["Operador_Sol"]).strip()
+                
+                if val_actual and val_actual not in opciones_operadores:
+                    opciones_operadores.append(val_actual)
+                    
+                idx_sel = opciones_operadores.index(val_actual) if val_actual in opciones_operadores else 0
+                
                 with c_op:
-                    val_encargado = st.text_input(
-                        "Nombre del Conductor / Operador",
-                        value=row["Operador_Sol"],
+                    val_encargado = st.selectbox(
+                        "Operador / Conductor",
+                        options=opciones_operadores,
+                        index=idx_sel,
                         key=f"op_{row['row']}",
-                        disabled=sistema_bloqueado,
-                        placeholder="Ej. Juan Pérez"
+                        disabled=sistema_bloqueado
                     )
+                    
                 with c_imp:
                     val_importe = st.number_input(
                         "Monto ($)",
@@ -481,12 +519,12 @@ if not es_admin:
         
         st.divider()
         m1, m2, m3 = st.columns(3)
-        m1.metric("Presupuesto", f"${presupuesto_propio:,.2f}")
+        m1.metric("Presupuesto Asignado", f"${presupuesto_propio:,.2f}")
         m2.metric("Total a Cargar", f"${total_capturado:,.2f}")
         m3.metric("Saldo Disponible", f"${saldo_restante:,.2f}", delta_color="normal" if saldo_restante >= 0 else "off")
         
         if total_capturado > presupuesto_propio:
-            st.error(f"⚠️ Excedes tu presupuesto por **${abs(saldo_restante):,.2f} MXN**.")
+            st.error(f"⚠️ Excedes tu presupuesto autorizado por **${abs(saldo_restante):,.2f} MXN**.")
             
         btn_guardar = st.form_submit_button("💾 Guardar Solicitud", type="primary", use_container_width=True, disabled=sistema_bloqueado)
         
@@ -507,7 +545,7 @@ if not es_admin:
 # 4. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
-    st.subheader("⚙️ Panel de Consolidación y Descarga Oficial")
+    st.subheader("⚙️ Panel de Consolidación, Edición y Descarga Oficial")
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -516,39 +554,43 @@ else:
         f_prog = st.date_input("Programación para el día", value=date.today())
 
     tab_saldos, tab_solicitud_final, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
-        "📊 Monitoreo de Saldos por Área",
-        "📄 Solicitud Final (Solo Vehículos que Cargan)",
+        "📊 Monitoreo y Asignación de Presupuestos",
+        "✏️ Solicitud Final y Modificación",
         "🛵 Mi Carga (LIAN)",
         "✅ Auditoría y Carga Real",
         "🛠️ Modo Pruebas"
     ])
 
-    df_solo_cargas_sol = df_actual[df_actual["Importe_Sol"] > 0].copy()
-
-    # 1. MONITOREO DE SALDOS (SIN CANTIDADES REPETIDAS)
+    # 1. MONITOREO Y TRANSFERENCIA DE PRESUPUESTOS
     with tab_saldos:
         st.markdown("##### 💵 Balance de Presupuestos en Tiempo Real")
+        
         total_global_sol = df_actual["Importe_Sol"].sum()
         saldo_global_sol = PRESUPUESTO_GLOBAL - total_global_sol
         
+        asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
+        total_comodin_usado = sum(asig_comodin_dict.values())
+        comodin_disponible = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_usado)
+        
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Monto Asignado a Áreas", f"${PRESUPUESTO_ASIGNADO_SOLICITANTES:,.2f}")
-        c2.metric("Bolsa Comodín", f"${BOLSA_COMODIN:,.2f}")
-        c3.metric("Presupuesto Total Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        c1.metric("Monto Base Áreas", f"${sum(PRESUPUESTO_BASE_POR_SOLICITANTE.values()):,.2f}")
+        c2.metric("Bolsa Comodín Libre", f"${comodin_disponible:,.2f}", delta=f"${total_comodin_usado:,.2f} asignados" if total_comodin_usado > 0 else "Disponible")
+        c3.metric("Presupuesto Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
         c4.metric(
             "Total Ya Solicitado", 
             f"${total_global_sol:,.2f}", 
-            delta=f"${saldo_global_sol:,.2f} disponible" if total_global_sol > 0 else "Sin solicitudes",
+            delta=f"${saldo_global_sol:,.2f} disponible",
             delta_color="normal" if saldo_global_sol >= 0 else "inverse"
         )
         
         st.write("")
+        st.markdown("##### 📋 Resumen Financiero por Solicitante")
         filas_saldos_area = []
-        for sol, p_base in PRESUPUESTO_POR_SOLICITANTE.items():
+        for sol, p_efectivo in presupuestos_actuales.items():
             sub_df = df_actual[df_actual["Solicitante"] == sol]
             sol_monto = sub_df["Importe_Sol"].sum()
-            disp_monto = p_base - sol_monto
-            pct_ejercido = (sol_monto / p_base * 100) if p_base > 0 else 0
+            disp_monto = p_efectivo - sol_monto
+            pct_ejercido = (sol_monto / p_efectivo * 100) if p_efectivo > 0 else 0
             
             if disp_monto == 0:
                 estatus = "✅ 100% Ejercido"
@@ -561,7 +603,8 @@ else:
                 
             filas_saldos_area.append({
                 "Solicitante / Área": sol,
-                "Presupuesto Base": p_base,
+                "Presupuesto Base": PRESUPUESTO_BASE_POR_SOLICITANTE.get(sol, 0.0),
+                "Presupuesto Autorizado": p_efectivo,
                 "Monto Solicitado": sol_monto,
                 "Saldo Disponible": disp_monto,
                 "% Usado": f"{pct_ejercido:.1f}%",
@@ -575,78 +618,138 @@ else:
             hide_index=True,
             column_config={
                 "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
+                "Presupuesto Autorizado": st.column_config.NumberColumn(format="$%.2f"),
                 "Monto Solicitado": st.column_config.NumberColumn(format="$%.2f"),
                 "Saldo Disponible": st.column_config.NumberColumn(format="$%.2f"),
             }
         )
 
-    # 2. SOLICITUD FINAL
-    with tab_solicitud_final:
-        st.markdown("##### 🚗 Lista Oficial de Unidades a Cargar")
+        st.divider()
+        st.markdown("##### 🔀 Asignar Comodín y Ceder Presupuesto Propio")
         
-        if df_solo_cargas_sol.empty:
-            st.warning("⚠️ No hay vehículos con monto asignado para generar el reporte.")
-        else:
-            st.dataframe(
-                df_solo_cargas_sol[["Operador_Sol", "Vehículo", "Placa", "Importe_Sol", "Actividad"]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Operador_Sol": st.column_config.TextColumn("Operador / Encargado"),
-                    "Vehículo": st.column_config.TextColumn("Vehículo"),
-                    "Placa": st.column_config.TextColumn("Placa"),
-                    "Importe_Sol": st.column_config.NumberColumn("Importe ($)", format="$%.2f"),
-                    "Actividad": st.column_config.TextColumn("Actividad", width="large")
-                }
+        col_trans1, col_trans2 = st.columns(2)
+        
+        with col_trans1:
+            with st.container(border=True):
+                st.markdown(f"🎁 **Asignar Bolsa Comodín (Libre: ${comodin_disponible:,.2f})**")
+                areas_comodin = [u for u in PRESUPUESTO_BASE_POR_SOLICITANTE.keys() if u != "LIAN"]
+                destinatario_comodin = st.selectbox("Asignar Comodín a:", areas_comodin, key="sel_comodin")
+                monto_comodin_add = st.number_input("Monto Extra a Asignar ($)", min_value=0.0, max_value=float(comodin_disponible), step=50.0, value=0.0, key="inp_comodin")
+                
+                if st.button("➕ Asignar Extra de Comodín", use_container_width=True):
+                    if monto_comodin_add > 0:
+                        asig_act = cfg_actual.get("asignacion_comodin", {})
+                        asig_act[destinatario_comodin] = asig_act.get(destinatario_comodin, 0.0) + monto_comodin_add
+                        cfg_actual["asignacion_comodin"] = asig_act
+                        guardar_config(cfg_actual)
+                        st.toast(f"Se asignaron ${monto_comodin_add:,.2f} a {destinatario_comodin}", icon="🎁")
+                        st.rerun()
+
+        with col_trans2:
+            with st.container(border=True):
+                presupuesto_lian_actual = presupuestos_actuales["LIAN"]
+                st.markdown(f"🤝 **Ceder Presupuesto de LIAN (Disponible: ${presupuesto_lian_actual:,.2f})**")
+                areas_ceder = [u for u in PRESUPUESTO_BASE_POR_SOLICITANTE.keys() if u != "LIAN"]
+                destinatario_ceder = st.selectbox("Ceder mi presupuesto a:", areas_ceder, key="sel_ceder")
+                monto_ceder = st.number_input("Monto a Ceder ($)", min_value=0.0, max_value=float(presupuesto_lian_actual), step=50.0, value=0.0, key="inp_ceder")
+                
+                if st.button("Transferir Presupuesto", use_container_width=True):
+                    if monto_ceder > 0:
+                        ces_act = cfg_actual.get("cesion_lian", {})
+                        ces_act[destinatario_ceder] = ces_act.get(destinatario_ceder, 0.0) + monto_ceder
+                        cfg_actual["cesion_lian"] = ces_act
+                        guardar_config(cfg_actual)
+                        st.toast(f"Has transferido ${monto_ceder:,.2f} a {destinatario_ceder}", icon="🤝")
+                        st.rerun()
+
+        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("cesion_lian"):
+            if st.button("🔄 Restablecer Transferencias a Valores Originales", type="secondary", use_container_width=True):
+                cfg_actual["asignacion_comodin"] = {}
+                cfg_actual["cesion_lian"] = {}
+                guardar_config(cfg_actual)
+                st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
+                st.rerun()
+
+    # 2. SOLICITUD FINAL Y EDITOR PARA EL ADMINISTRADOR
+    with tab_solicitud_final:
+        st.markdown("##### 🚗 Solicitud de Carga Oficial y Editor Administrativo")
+        st.caption("Como Administrador, puedes modificar nombres e importes directamente en la tabla antes de descargar:")
+        
+        df_admin_edit = st.data_editor(
+            df_actual.copy(),
+            use_container_width=True,
+            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador_Real", "Importe_Real"],
+            column_config={
+                "Solicitante": st.column_config.TextColumn("Área"),
+                "Vehículo": st.column_config.TextColumn("Vehículo"),
+                "Placa": st.column_config.TextColumn("Placa"),
+                "Operador_Sol": st.column_config.TextColumn("Operador / Encargado (Editable)"),
+                "Importe_Sol": st.column_config.NumberColumn("Importe Solicitado ($) (Editable)", min_value=0.0, step=50.0, format="$%.2f"),
+                "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
+                "row": None, "Operador_Real": None, "Importe_Real": None
+            },
+            hide_index=True,
+            key="admin_solicitudes_editor"
+        )
+        
+        if st.button("💾 Guardar Cambios Realizados por Admin en Google Sheets", type="primary", use_container_width=True):
+            with st.spinner("Guardando modificaciones en Google Sheets..."):
+                enviar_datos_sheets(df_admin_edit, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ ¡Cambios administrativos guardados y sincronizados!")
+                st.rerun()
+        
+        st.markdown("---")
+        
+        df_solo_cargas_sol = df_admin_edit[df_admin_edit["Importe_Sol"] > 0].copy()
+        
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            excel_bytes = generar_excel_oficial_formato(df_admin_edit, f_elab, f_prog)
+            st.download_button(
+                label="📥 Descargar Formato Oficial Excel (.xlsx)",
+                data=excel_bytes,
+                file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
             
-            st.markdown("---")
-            col_d1, col_d2 = st.columns(2)
-            
-            with col_d1:
-                excel_bytes = generar_excel_oficial_formato(df_actual, f_elab, f_prog)
-                st.download_button(
-                    label="📥 Descargar Formato Oficial Excel (.xlsx)",
-                    data=excel_bytes,
-                    file_name=f"SOLICITUD_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-            with col_d2:
-                pdf_bytes = generar_pdf_oficial(df_solo_cargas_sol, f_elab, f_prog)
-                st.download_button(
-                    label="📄 Descargar Oficio Oficial en PDF",
-                    data=pdf_bytes,
-                    file_name=f"OFICIO_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+        with col_d2:
+            pdf_bytes = generar_pdf_oficial(df_solo_cargas_sol, f_elab, f_prog)
+            st.download_button(
+                label="📄 Descargar Oficio Oficial en PDF",
+                data=pdf_bytes,
+                file_name=f"OFICIO_COMBUSTIBLE_{f_prog.strftime('%d%m%Y')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
     # 3. MI CARGA (LIAN)
     with tab_mi_carga:
         st.markdown("##### 🛵 Registro de Solicitud para tu Unidad")
         df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+        presupuesto_lian_efectivo = presupuestos_actuales["LIAN"]
         
         if not df_lian.empty:
             row_lian = df_lian.iloc[0]
             with st.container(border=True):
-                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Base: **$150.00**")
+                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Actual Disponible: **${presupuesto_lian_efectivo:,.2f}**")
                 st.caption(f"📋 **Actividad:** {row_lian['Actividad']}")
                 
                 c_op_lian, c_imp_lian = st.columns([1.5, 1])
                 with c_op_lian:
-                    val_op_lian = st.text_input(
-                        "Nombre del Conductor / Operador", 
-                        value=row_lian["Operador_Sol"] if row_lian["Operador_Sol"] else "FRANCISCO ALONZO",
+                    val_op_lian = st.selectbox(
+                        "Operador Encargado",
+                        options=["FRANCISCO ALONZO"],
+                        index=0,
                         key="admin_op_lian_tab"
                     )
                 with c_imp_lian:
                     val_imp_lian = st.number_input(
                         "Importe Solicitado ($)", 
-                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else 150.00,
+                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else float(presupuesto_lian_efectivo),
                         step=50.0,
                         min_value=0.0,
+                        max_value=float(presupuesto_lian_efectivo),
                         key="admin_imp_lian_tab",
                         format="%.2f"
                     )
