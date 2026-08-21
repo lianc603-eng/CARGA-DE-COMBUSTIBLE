@@ -34,7 +34,6 @@ PRESUPUESTO_BASE_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# CATÁLOGO OFICIAL DE OPERADORES POR SOLICITANTE (CORREGIDO FARID PAVON)
 OPERADORES_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": ["JESUS COB"],
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
@@ -228,17 +227,18 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     ws["B5"] = "Subdireccion:"
     ws["B5"].font = fuente_sub
     
-    ws["F6"] = "Elaboro:"
-    ws["F6"].font = fuente_sub
-    ws["F6"].alignment = Alignment(horizontal="right")
-    ws["G6"] = f_elab.strftime("%d/%m/%Y")
-    ws["G6"].font = fuente_sub
+    # Ubicación oficial de las etiquetas y fechas en I8 e I9
+    ws["H8"] = "Elaboro:"
+    ws["H8"].font = fuente_sub
+    ws["H8"].alignment = Alignment(horizontal="right")
+    ws["I8"] = f_elab.strftime("%d/%m/%Y")
+    ws["I8"].font = fuente_sub
     
-    ws["E7"] = "Programacion para el dia:"
-    ws["E7"].font = fuente_sub
-    ws["E7"].alignment = Alignment(horizontal="right")
-    ws["G7"] = f_prog.strftime("%d/%m/%Y")
-    ws["G7"].font = fuente_sub
+    ws["H9"] = "Programacion para el dia:"
+    ws["H9"].font = fuente_sub
+    ws["H9"].alignment = Alignment(horizontal="right")
+    ws["I9"] = f_prog.strftime("%d/%m/%Y")
+    ws["I9"].font = fuente_sub
 
     headers_oficiales = [
         (2, "NOMBRE DEL\nENCARGADO"),
@@ -805,7 +805,6 @@ else:
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
-        # CONTROL DE BLOQUEO DE 3:10 PM
         with st.container(border=True):
             st.subheader("⏰ Control de Bloqueo a las 3:10 PM")
             st.write(
@@ -827,7 +826,6 @@ else:
                     st.toast("Bloqueo de 3:10 PM ACTIVADO para usuarios.", icon="🔒")
                 st.rerun()
 
-        # LIMPIEZA DE PRUEBAS
         with st.container(border=True):
             st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
             st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
@@ -844,7 +842,6 @@ else:
                 st.success("✅ Todas las unidades restablecidas a $0.00.")
                 st.rerun()
 
-        # SIMULADOR
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
