@@ -115,9 +115,12 @@ def calcular_presupuesto_efectivo():
     presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
-# --- CONSULTA GLOBAL CON CACHÉ DE 5 SEGUNDOS ---
-@st.cache_data(ttl=5, show_spinner=False)
-def fetch_datos_sheets_remoto():
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
+def obtener_datos_sheets(forzar=False):
+    # Si ya tenemos datos en la sesión y no se forzó recarga, usarlos
+    if "df_datos_persistentes" in st.session_state and not forzar:
+        return st.session_state.df_datos_persistentes.copy()
+
     filas = []
     try:
         res = requests.get(WEBHOOK_URL, timeout=8, allow_redirects=True)
@@ -141,6 +144,9 @@ def fetch_datos_sheets_remoto():
         pass
 
     if not filas:
+        if "df_datos_persistentes" in st.session_state:
+            return st.session_state.df_datos_persistentes.copy()
+            
         for r, info in MAPEO_SOLICITANTES.items():
             filas.append({
                 "row": r,
@@ -154,21 +160,18 @@ def fetch_datos_sheets_remoto():
                 "Importe_Real": 0.0
             })
             
-    return pd.DataFrame(filas)
+    df_res = pd.DataFrame(filas)
+    st.session_state.df_datos_persistentes = df_res.copy()
+    return df_res
 
-def obtener_datos_sheets(forzar=False):
-    if forzar:
-        st.cache_data.clear()
-    return fetch_datos_sheets_remoto().copy()
-
-def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
+def enviar_datos_sheets(registros_a_enviar, tipo="solicitado", f_elab=None, f_prog=None):
     payload = {"tipo": tipo, "registros": []}
     if f_elab:
         payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
     if f_prog:
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
         
-    for _, fila in registros.iterrows():
+    for _, fila in registros_a_enviar.iterrows():
         enc = fila["Operador_Sol"] if tipo == "solicitado" else fila.get("Operador_Real", fila["Operador_Sol"])
         imp = fila["Importe_Sol"] if tipo == "solicitado" else fila["Importe_Real"]
         payload["registros"].append({
@@ -177,12 +180,23 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
             "importe": float(imp) if pd.notna(imp) else 0.0
         })
         
+    # Actualizar inmediatamente la copia persistente en memoria para evitar desfases
+    if "df_datos_persistentes" in st.session_state:
+        df_mem = st.session_state.df_datos_persistentes
+        for _, r_env in registros_a_enviar.iterrows():
+            mask = df_mem["row"] == r_env["row"]
+            if tipo == "solicitado":
+                df_mem.loc[mask, "Operador_Sol"] = r_env["Operador_Sol"]
+                df_mem.loc[mask, "Importe_Sol"] = r_env["Importe_Sol"]
+            else:
+                df_mem.loc[mask, "Operador_Real"] = r_env.get("Operador_Real", r_env["Operador_Sol"])
+                df_mem.loc[mask, "Importe_Real"] = r_env["Importe_Real"]
+        st.session_state.df_datos_persistentes = df_mem
+
     try:
         res = requests.post(WEBHOOK_URL, json=payload, timeout=10, allow_redirects=True)
-        st.cache_data.clear()
         return res.status_code == 200
     except Exception:
-        st.cache_data.clear()
         return False
 
 # ==========================================
@@ -427,7 +441,7 @@ with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
         obtener_datos_sheets(forzar=True)
-        st.toast("Datos sincronizados en tiempo real.", icon="✅")
+        st.toast("Datos sincronizados con Google Sheets.", icon="✅")
         st.rerun()
 
 with c3:
@@ -528,11 +542,8 @@ if not es_admin:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
                 with st.spinner("Guardando en Google Sheets..."):
-                    for _, r_m in df_edit_movil.iterrows():
-                        mask = df_actual["row"] == r_m["row"]
-                        df_actual.loc[mask, "Operador_Sol"] = r_m["Operador_Sol"]
-                        df_actual.loc[mask, "Importe_Sol"] = r_m["Importe_Sol"]
-                    enviar_datos_sheets(df_actual, tipo="solicitado")
+                    # 👉 SOLO SE ENVÍAN LAS FILAS DE ESTE SOLICITANTE (SIN AFECTAR A LOS DEMÁS)
+                    enviar_datos_sheets(df_edit_movil, tipo="solicitado")
                     st.success("✅ ¡Solicitud guardada con éxito en Google Sheets!")
                     st.rerun()
 
@@ -670,20 +681,17 @@ else:
         st.markdown("##### 🚗 Solicitud de Carga Oficial y Editor Administrativo")
         st.caption("Como Administrador, selecciona el operador de la lista y modifica los montos antes de descargar:")
         
-        # Lista combinada y sin duplicados de todos los operadores oficiales
         todos_los_operadores = [""]
         for l_ops in OPERADORES_POR_SOLICITANTE.values():
             for o in l_ops:
                 if o not in todos_los_operadores:
                     todos_los_operadores.append(o)
                     
-        # Incluir cualquier operador ya guardado en la hoja
         for op_existente in df_actual["Operador_Sol"].dropna().unique():
             op_limpio = str(op_existente).strip()
             if op_limpio and op_limpio not in todos_los_operadores:
                 todos_los_operadores.append(op_limpio)
         
-        # Editor interactivo con lista desplegable para la columna del operador
         df_admin_edit = st.data_editor(
             df_actual.copy(),
             use_container_width=True,
@@ -774,10 +782,11 @@ else:
                     )
                 
                 if st.button("💾 Guardar Mi Carga", type="primary", use_container_width=True):
-                    mask_lian = df_actual["Solicitante"] == "LIAN"
-                    df_actual.loc[mask_lian, "Operador_Sol"] = val_op_lian
-                    df_actual.loc[mask_lian, "Importe_Sol"] = val_imp_lian
-                    enviar_datos_sheets(df_actual, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    # Guardar solo la fila de LIAN
+                    df_mi_carga = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+                    df_mi_carga["Operador_Sol"] = val_op_lian
+                    df_mi_carga["Importe_Sol"] = val_imp_lian
+                    enviar_datos_sheets(df_mi_carga, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                     st.success("✅ Tu carga fue registrada correctamente.")
                     st.rerun()
 
