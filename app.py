@@ -115,16 +115,14 @@ def calcular_presupuesto_efectivo():
     presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
-# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
-def obtener_datos_sheets(forzar=False):
-    if "df_datos" in st.session_state and not forzar:
-        return st.session_state.df_datos
-
+# --- CONSULTA GLOBAL CON CACHÉ DE 5 SEGUNDOS (SIN RETARDOS) ---
+@st.cache_data(ttl=5, show_spinner=False)
+def fetch_datos_sheets_remoto():
+    filas = []
     try:
         res = requests.get(WEBHOOK_URL, timeout=8, allow_redirects=True)
         if res.status_code == 200:
             datos_raw = res.json().get("data", [])
-            filas = []
             for item in datos_raw:
                 r = int(item.get("row", 0))
                 if r in MAPEO_SOLICITANTES:
@@ -139,32 +137,29 @@ def obtener_datos_sheets(forzar=False):
                         "Operador_Real": str(item.get("encargado_real", "")).strip(),
                         "Importe_Real": float(item.get("importe_real", 0.0)) if item.get("importe_real") else 0.0
                     })
-            if filas:
-                df = pd.DataFrame(filas)
-                st.session_state.df_datos = df
-                return df
     except Exception:
         pass
 
-    if "df_datos" in st.session_state:
-        return st.session_state.df_datos
+    if not filas:
+        for r, info in MAPEO_SOLICITANTES.items():
+            filas.append({
+                "row": r,
+                "Solicitante": info["solicita"],
+                "Vehículo": info["vehiculo"],
+                "Placa": info["placa"],
+                "Actividad": info["actividad"],
+                "Operador_Sol": "",
+                "Importe_Sol": 0.0,
+                "Operador_Real": "",
+                "Importe_Real": 0.0
+            })
+            
+    return pd.DataFrame(filas)
 
-    filas_base = []
-    for r, info in MAPEO_SOLICITANTES.items():
-        filas_base.append({
-            "row": r,
-            "Solicitante": info["solicita"],
-            "Vehículo": info["vehiculo"],
-            "Placa": info["placa"],
-            "Actividad": info["actividad"],
-            "Operador_Sol": "FRANCISCO ALONZO" if info["solicita"] == "LIAN" else "",
-            "Importe_Sol": 150.0 if info["solicita"] == "LIAN" else 0.0,
-            "Operador_Real": "",
-            "Importe_Real": 0.0
-        })
-    df_def = pd.DataFrame(filas_base)
-    st.session_state.df_datos = df_def
-    return df_def
+def obtener_datos_sheets(forzar=False):
+    if forzar:
+        st.cache_data.clear()
+    return fetch_datos_sheets_remoto().copy()
 
 def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
     payload = {"tipo": tipo, "registros": []}
@@ -182,11 +177,13 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
             "importe": float(imp) if pd.notna(imp) else 0.0
         })
         
-    st.session_state.df_datos = registros.copy()
     try:
         res = requests.post(WEBHOOK_URL, json=payload, timeout=10, allow_redirects=True)
+        # Limpiar caché global para que todos los usuarios vean los datos al instante
+        st.cache_data.clear()
         return res.status_code == 200
     except Exception:
+        st.cache_data.clear()
         return False
 
 # ==========================================
@@ -227,7 +224,6 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
     ws["B5"] = "Subdireccion:"
     ws["B5"].font = fuente_sub
     
-    # Ubicación oficial de las etiquetas y fechas en I8 e I9
     ws["H8"] = "Elaboro:"
     ws["H8"].font = fuente_sub
     ws["H8"].alignment = Alignment(horizontal="right")
@@ -431,8 +427,8 @@ with c1:
 with c2:
     st.write("")
     if st.button("🔄 Sincronizar Sheets", use_container_width=True):
-        st.session_state.df_datos = obtener_datos_sheets(forzar=True)
-        st.toast("Datos sincronizados con Google Sheets.", icon="✅")
+        obtener_datos_sheets(forzar=True)
+        st.toast("Datos sincronizados en tiempo real.", icon="✅")
         st.rerun()
 
 with c3:
@@ -731,22 +727,27 @@ else:
         
         if not df_lian.empty:
             row_lian = df_lian.iloc[0]
+            val_guardado = float(row_lian["Importe_Sol"])
+            op_guardado = str(row_lian["Operador_Sol"]).strip()
+            
             with st.container(border=True):
-                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Actual Disponible: **${presupuesto_lian_efectivo:,.2f}**")
+                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Disponible: **${presupuesto_lian_efectivo:,.2f}**")
                 st.caption(f"📋 **Actividad:** {row_lian['Actividad']}")
                 
                 c_op_lian, c_imp_lian = st.columns([1.5, 1])
                 with c_op_lian:
+                    opciones_lian = ["", "FRANCISCO ALONZO"]
+                    idx_op_lian = opciones_lian.index(op_guardado) if op_guardado in opciones_lian else 0
                     val_op_lian = st.selectbox(
                         "Operador Encargado",
-                        options=["FRANCISCO ALONZO"],
-                        index=0,
+                        options=opciones_lian,
+                        index=idx_op_lian,
                         key="admin_op_lian_tab"
                     )
                 with c_imp_lian:
                     val_imp_lian = st.number_input(
                         "Importe Solicitado ($)", 
-                        value=float(row_lian["Importe_Sol"]) if row_lian["Importe_Sol"] > 0 else float(presupuesto_lian_efectivo),
+                        value=val_guardado,
                         step=50.0,
                         min_value=0.0,
                         max_value=float(presupuesto_lian_efectivo),
@@ -805,6 +806,7 @@ else:
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
+        # CONTROL DE BLOQUEO DE 3:10 PM
         with st.container(border=True):
             st.subheader("⏰ Control de Bloqueo a las 3:10 PM")
             st.write(
@@ -826,6 +828,7 @@ else:
                     st.toast("Bloqueo de 3:10 PM ACTIVADO para usuarios.", icon="🔒")
                 st.rerun()
 
+        # LIMPIEZA DE PRUEBAS
         with st.container(border=True):
             st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
             st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
@@ -842,6 +845,7 @@ else:
                 st.success("✅ Todas las unidades restablecidas a $0.00.")
                 st.rerun()
 
+        # SIMULADOR
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
