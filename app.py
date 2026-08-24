@@ -115,7 +115,7 @@ def calcular_presupuesto_efectivo():
     presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
-# --- CONSULTA GLOBAL CON CACHÉ DE 5 SEGUNDOS (SIN RETARDOS) ---
+# --- CONSULTA GLOBAL CON CACHÉ DE 5 SEGUNDOS ---
 @st.cache_data(ttl=5, show_spinner=False)
 def fetch_datos_sheets_remoto():
     filas = []
@@ -179,7 +179,6 @@ def enviar_datos_sheets(registros, tipo="solicitado", f_elab=None, f_prog=None):
         
     try:
         res = requests.post(WEBHOOK_URL, json=payload, timeout=10, allow_redirects=True)
-        # Limpiar caché global para que todos los usuarios vean los datos al instante
         st.cache_data.clear()
         return res.status_code == 200
     except Exception:
@@ -666,11 +665,25 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    # 2. SOLICITUD FINAL Y EDITOR PARA EL ADMINISTRADOR
+    # 2. SOLICITUD FINAL Y EDITOR CON LISTA DESPLEGABLE PARA EL ADMINISTRADOR
     with tab_solicitud_final:
         st.markdown("##### 🚗 Solicitud de Carga Oficial y Editor Administrativo")
-        st.caption("Como Administrador, puedes modificar nombres e importes directamente en la tabla antes de descargar:")
+        st.caption("Como Administrador, selecciona el operador de la lista y modifica los montos antes de descargar:")
         
+        # Lista combinada y sin duplicados de todos los operadores oficiales
+        todos_los_operadores = [""]
+        for l_ops in OPERADORES_POR_SOLICITANTE.values():
+            for o in l_ops:
+                if o not in todos_los_operadores:
+                    todos_los_operadores.append(o)
+                    
+        # Incluir cualquier operador ya guardado en la hoja
+        for op_existente in df_actual["Operador_Sol"].dropna().unique():
+            op_limpio = str(op_existente).strip()
+            if op_limpio and op_limpio not in todos_los_operadores:
+                todos_los_operadores.append(op_limpio)
+        
+        # Editor interactivo con lista desplegable para la columna del operador
         df_admin_edit = st.data_editor(
             df_actual.copy(),
             use_container_width=True,
@@ -679,7 +692,12 @@ else:
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placa"),
-                "Operador_Sol": st.column_config.TextColumn("Operador / Encargado (Editable)"),
+                "Operador_Sol": st.column_config.SelectboxColumn(
+                    "Operador / Encargado (Elegir)",
+                    options=todos_los_operadores,
+                    required=False,
+                    width="medium"
+                ),
                 "Importe_Sol": st.column_config.NumberColumn("Importe Solicitado ($) (Editable)", min_value=0.0, step=50.0, format="$%.2f"),
                 "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
                 "row": None, "Operador_Real": None, "Importe_Real": None
@@ -806,7 +824,6 @@ else:
     with tab_mantenimiento:
         st.markdown("##### 🛠️ Control de Horarios, Simulación y Limpieza")
         
-        # CONTROL DE BLOQUEO DE 3:10 PM
         with st.container(border=True):
             st.subheader("⏰ Control de Bloqueo a las 3:10 PM")
             st.write(
@@ -828,7 +845,6 @@ else:
                     st.toast("Bloqueo de 3:10 PM ACTIVADO para usuarios.", icon="🔒")
                 st.rerun()
 
-        # LIMPIEZA DE PRUEBAS
         with st.container(border=True):
             st.subheader("🧹 Reiniciar / Limpiar Todas las Cargas a $0.00")
             st.write("Esta acción borra los nombres y regresa a **$0.00** los importes tanto de la sección solicitada como de la real en Google Sheets.")
@@ -845,7 +861,6 @@ else:
                 st.success("✅ Todas las unidades restablecidas a $0.00.")
                 st.rerun()
 
-        # SIMULADOR
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil de Solicitante")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
