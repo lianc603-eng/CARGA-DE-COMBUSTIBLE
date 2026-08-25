@@ -48,7 +48,7 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# MAPEO IDÉNTICO FILA POR FILA A TU HOJA DE GOOGLE SHEETS
+# MAPEO EXACTO A LAS FILAS DE GOOGLE SHEETS
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -117,11 +117,14 @@ def calcular_presupuesto_efectivo():
     presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
-def limpiar_texto_operador(val):
-    if val is None or pd.isna(val):
+def validar_operador_para_fila(solicitante, op_texto):
+    if not op_texto or pd.isna(op_texto):
         return ""
-    s = str(val).strip()
-    return "" if s.lower() in ["none", "null", "nan", ""] else s
+    s = str(op_texto).strip()
+    if s.lower() in ["none", "null", "nan", ""]:
+        return ""
+    ops_permitidos = OPERADORES_POR_SOLICITANTE.get(solicitante, [])
+    return s if s in ops_permitidos else ""
 
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES) ---
 def obtener_datos_dos_hojas(forzar=False):
@@ -143,26 +146,37 @@ def obtener_datos_dos_hojas(forzar=False):
             
             for r in sorted(MAPEO_SOLICITANTES.keys()):
                 info = MAPEO_SOLICITANTES[r]
-                # Datos Lunes
+                sol = info["solicita"]
+                
+                # Datos Lunes Sanitizados
                 item_l = dict_l.get(r, {})
-                op_l = limpiar_texto_operador(item_l.get("encargado", ""))
+                op_l = validar_operador_para_fila(sol, item_l.get("encargado", ""))
                 imp_l = float(item_l.get("importe", 0.0)) if item_l.get("importe") else 0.0
                 real_l = float(item_l.get("real", 0.0)) if item_l.get("real") else 0.0
                 
+                # Blindaje fila 22 vs 24
+                if r == 22 and sol == "LIAN" and op_l not in ["", "FRANCISCO ALONZO"]:
+                    op_l = ""
+                    imp_l = 0.0
+                
                 filas_lunes.append({
-                    "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                    "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
-                # Datos Jueves
+                # Datos Jueves Sanitizados
                 item_j = dict_j.get(r, {})
-                op_j = limpiar_texto_operador(item_j.get("encargado", ""))
+                op_j = validar_operador_para_fila(sol, item_j.get("encargado", ""))
                 imp_j = float(item_j.get("importe", 0.0)) if item_j.get("importe") else 0.0
                 real_j = float(item_j.get("real", 0.0)) if item_j.get("real") else 0.0
                 
+                if r == 22 and sol == "LIAN" and op_j not in ["", "FRANCISCO ALONZO"]:
+                    op_j = ""
+                    imp_j = 0.0
+                
                 filas_jueves.append({
-                    "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                    "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
                     "Operador": op_j, "Importe": imp_j, "Real": real_j
                 })
@@ -204,11 +218,13 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
         payload["historico"] = historico_obj
 
     for _, fila in df_a_enviar.iterrows():
-        enc = fila["Operador"]
+        r = int(fila["row"])
+        sol = MAPEO_SOLICITANTES.get(r, {}).get("solicita", "")
+        enc = validar_operador_para_fila(sol, fila["Operador"])
         imp = fila["Importe"] if tipo == "solicitado" else fila["Real"]
         payload["registros"].append({
-            "row": int(fila["row"]),
-            "encargado": limpiar_texto_operador(enc),
+            "row": r,
+            "encargado": enc,
             "importe": float(imp) if pd.notna(imp) else 0.0
         })
 
@@ -216,9 +232,11 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
     if key_state in st.session_state:
         df_mem = st.session_state[key_state]
         for _, r_env in df_a_enviar.iterrows():
-            mask = df_mem["row"] == r_env["row"]
+            r = int(r_env["row"])
+            sol = MAPEO_SOLICITANTES.get(r, {}).get("solicita", "")
+            mask = df_mem["row"] == r
             if tipo == "solicitado":
-                df_mem.loc[mask, "Operador"] = limpiar_texto_operador(r_env["Operador"])
+                df_mem.loc[mask, "Operador"] = validar_operador_para_fila(sol, r_env["Operador"])
                 df_mem.loc[mask, "Importe"] = r_env["Importe"]
             else:
                 df_mem.loc[mask, "Real"] = r_env["Real"]
@@ -298,7 +316,7 @@ def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
         
         if not row_info.empty:
             item = row_info.iloc[0]
-            op_nombre = limpiar_texto_operador(item["Operador"])
+            op_nombre = str(item["Operador"]).strip()
             veh = str(item["Vehículo"]).strip()
             plc = str(item["Placa"]).strip()
             imp_val = float(item["Importe"])
@@ -387,7 +405,7 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
         total = 0.0
         for _, row in df_cargas.iterrows():
             data_row = table.row()
-            data_row.cell(limpiar_texto_operador(row["Operador"]))
+            data_row.cell(str(row["Operador"]).strip())
             data_row.cell(str(row["Vehículo"]).strip())
             data_row.cell(str(row["Placa"]).strip())
             data_row.cell('OFICIAL')
@@ -532,7 +550,7 @@ if not es_admin:
                 
                 c_op, c_imp = st.columns([1.5, 1])
                 opciones_operadores = [""] + lista_operadores_autorizados
-                val_actual = limpiar_texto_operador(row["Operador"])
+                val_actual = str(row["Operador"]).strip()
                 
                 if val_actual and val_actual not in opciones_operadores:
                     opciones_operadores.append(val_actual)
@@ -733,36 +751,27 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    todos_ops = [""]
-    for l_ops in OPERADORES_POR_SOLICITANTE.values():
-        for o in l_ops:
-            if o not in todos_ops:
-                todos_ops.append(o)
-
     # 2. CARGA LUNES (FORMATO Y EDITOR FINAL)
     with tab_lunes:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
-        st.caption("Modifica libremente operadores y montos del **Lunes** antes de descargar:")
-        
-        df_lunes_view = df_lunes.copy()
-        df_lunes_view["Operador"] = df_lunes_view["Operador"].apply(limpiar_texto_operador)
+        st.caption("Modifica nombres e importes correspondientes al **Lunes** antes de descargar:")
         
         df_lunes_edit = st.data_editor(
-            df_lunes_view,
+            df_lunes.copy(),
             use_container_width=True,
-            height=530,  # Altura para las 13 filas completas (12 a 24)
+            height=530,
             disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placa"),
-                "Operador": st.column_config.SelectboxColumn("Operador Lunes (Elegir)", options=todos_ops, width="medium"),
+                "Operador": st.column_config.TextColumn("Operador Lunes (Escribir o editar)", width="medium"),
                 "Importe": st.column_config.NumberColumn("Importe Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
                 "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_lunes_final"
+            key="admin_editor_lunes_corregido"
         )
         
         if st.button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True):
@@ -799,13 +808,10 @@ else:
     # 3. CARGA JUEVES (FORMATO Y EDITOR FINAL)
     with tab_jueves:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Pestaña 'jueves')")
-        st.caption("Modifica libremente operadores y montos del **Jueves** antes de descargar:")
-        
-        df_jueves_view = df_jueves.copy()
-        df_jueves_view["Operador"] = df_jueves_view["Operador"].apply(limpiar_texto_operador)
+        st.caption("Modifica nombres e importes correspondientes al **Jueves** antes de descargar:")
         
         df_jueves_edit = st.data_editor(
-            df_jueves_view,
+            df_jueves.copy(),
             use_container_width=True,
             height=530,
             disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
@@ -813,13 +819,13 @@ else:
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placa"),
-                "Operador": st.column_config.SelectboxColumn("Operador Jueves (Elegir)", options=todos_ops, width="medium"),
+                "Operador": st.column_config.TextColumn("Operador Jueves (Escribir o editar)", width="medium"),
                 "Importe": st.column_config.NumberColumn("Importe Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
                 "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_jueves_final"
+            key="admin_editor_jueves_corregido"
         )
         
         if st.button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True):
@@ -870,14 +876,14 @@ else:
                 c_ml1, c_ml2 = st.columns(2)
                 with c_ml1:
                     st.markdown("🗓️ **Carga del Lunes**")
-                    op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
+                    op_l_guardado = str(row_l_lian["Operador"]).strip()
                     op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
                     imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(presupuesto_lian_efectivo), key="ml_imp_l")
                 
                 with c_ml2:
                     st.markdown("🗓️ **Carga del Jueves**")
                     disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
-                    op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
+                    op_j_guardado = str(row_j_lian["Operador"]).strip()
                     op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
                     imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(disponible_jueves_lian), key="ml_imp_j")
                 
@@ -915,7 +921,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_lunes_v2"
+                key="aud_editor_lunes_v3"
             )
             
             if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -938,7 +944,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_jueves_v2"
+                key="aud_editor_jueves_v3"
             )
             
             if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
