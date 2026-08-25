@@ -24,8 +24,9 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 CONFIG_FILE = "config_sistema.json"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
+# Presupuesto de Jesús Cob ajustado a $200.00
 PRESUPUESTO_BASE_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 400.00,
+    "COB CHAVEZ NARCISO DEL JESUS": 200.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
     "NOEL CHAN": 850.00,
@@ -790,11 +791,9 @@ else:
                     df_mi_carga = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
                     df_mi_carga["Operador_Sol"] = val_op_lian
                     df_mi_carga["Importe_Sol"] = val_imp_lian
-                    exito = enviar_datos_sheets(df_mi_carga, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    if exito:
-                        st.success("✅ Tu carga fue registrada correctamente.")
-                    else:
-                        st.error("Error al registrar tu carga.")
+                    enviar_datos_sheets(df_mi_carga, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    st.success("✅ Tu carga fue registrada correctamente.")
+                    st.rerun()
 
     # 4. AUDITORÍA Y CARGA REAL (CON ARCHIVADO EN HISTÓRICO)
     with tab_auditoria:
@@ -862,7 +861,7 @@ else:
                 if exito:
                     st.success(f"✅ ¡Cargas reales guardadas en 'carga' y folio **{folio_generado}** registrado en 'historico'!")
                 else:
-                    st.error("⚠️ Error de comunicación. Verifica que hayas implementado la 'Nueva versión' en Google Apps Script.")
+                    st.error("⚠️ Error de comunicación al guardar en Google Sheets.")
 
     # 5. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
