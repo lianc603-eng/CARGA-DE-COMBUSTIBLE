@@ -128,17 +128,24 @@ def obtener_datos_sheets(forzar=False):
             for item in datos_raw:
                 r = int(item.get("row", 0))
                 if r in MAPEO_SOLICITANTES:
+                    # Compatibilidad con formatos viejo y nuevo
+                    op_l = item.get("encargado_lunes") or item.get("encargado_solicitado") or ""
+                    imp_l = item.get("importe_lunes") if item.get("importe_lunes") is not None else item.get("importe_solicitado", 0.0)
+                    op_j = item.get("encargado_jueves") or item.get("encargado_real") or ""
+                    imp_j = item.get("importe_jueves") if item.get("importe_jueves") is not None else 0.0
+                    imp_r = item.get("importe_real") if item.get("importe_real") is not None else 0.0
+
                     filas.append({
                         "row": r,
                         "Solicitante": MAPEO_SOLICITANTES[r]["solicita"],
                         "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
                         "Placa": MAPEO_SOLICITANTES[r]["placa"],
                         "Actividad": MAPEO_SOLICITANTES[r]["actividad"],
-                        "Operador_Lunes": str(item.get("encargado_lunes", "")).strip(),
-                        "Importe_Lunes": float(item.get("importe_lunes", 0.0)) if item.get("importe_lunes") else 0.0,
-                        "Operador_Jueves": str(item.get("encargado_jueves", "")).strip(),
-                        "Importe_Jueves": float(item.get("importe_jueves", 0.0)) if item.get("importe_jueves") else 0.0,
-                        "Importe_Real": float(item.get("importe_real", 0.0)) if item.get("importe_real") else 0.0
+                        "Operador_Lunes": str(op_l).strip(),
+                        "Importe_Lunes": float(imp_l) if imp_l else 0.0,
+                        "Operador_Jueves": str(op_j).strip(),
+                        "Importe_Jueves": float(imp_j) if imp_j else 0.0,
+                        "Importe_Real": float(imp_r) if imp_r else 0.0
                     })
     except Exception:
         pass
@@ -487,7 +494,6 @@ if not es_admin:
     total_lunes_sol = df_solicitante["Importe_Lunes"].sum()
     total_jueves_sol = df_solicitante["Importe_Jueves"].sum()
     
-    # Si estamos en Jueves, el saldo disponible es: Presupuesto Semanal - Lo que cargó el Lunes
     if dia_seleccionado == "Lunes":
         disponible_para_hoy = presupuesto_semanal
         cargado_anterior = 0.0
@@ -506,7 +512,6 @@ if not es_admin:
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
-        
         col_op_target = "Operador_Lunes" if dia_seleccionado == "Lunes" else "Operador_Jueves"
         col_imp_target = "Importe_Lunes" if dia_seleccionado == "Lunes" else "Importe_Jueves"
         
