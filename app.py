@@ -48,6 +48,7 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
+# MAPEO EXACTO A LAS FILAS DE TU GOOGLE SHEETS
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -58,9 +59,9 @@ MAPEO_SOLICITANTES = {
     18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
     19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
     20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    21: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    22: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
+    22: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
     23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
 USUARIOS_PASSWORD = {
@@ -121,7 +122,7 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
-# --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES SEPARADOS) ---
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES) ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
         return st.session_state.df_lunes.copy(), st.session_state.df_jueves.copy()
@@ -330,19 +331,19 @@ def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
-    c_lbl_tot = ws.cell(row=24, column=6, value="TOTAL")
+    c_lbl_tot = ws.cell(row=25, column=6, value="TOTAL")
     c_lbl_tot.font = fuente_bold
     c_lbl_tot.alignment = Alignment(horizontal="right", vertical="center")
     c_lbl_tot.border = border_cuadricula
     
-    c_val_tot = ws.cell(row=24, column=7, value="=SUM(G12:G23)")
+    c_val_tot = ws.cell(row=25, column=7, value="=SUM(G12:G24)")
     c_val_tot.font = fuente_bold
     c_val_tot.number_format = '$#,##0.00'
     c_val_tot.alignment = Alignment(horizontal="right", vertical="center")
     c_val_tot.border = border_cuadricula
     
     for c_rest in [2, 3, 4, 5, 8, 9]:
-        ws.cell(row=24, column=c_rest).border = border_cuadricula
+        ws.cell(row=25, column=c_rest).border = border_cuadricula
 
     anchos_cols = {'A': 3, 'B': 24, 'C': 18, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52}
     for col_letra, ancho in anchos_cols.items():
@@ -498,7 +499,6 @@ if not es_admin:
     sub_l = df_lunes[df_lunes["Solicitante"] == usuario_efectivo]
     sub_j = df_jueves[df_jueves["Solicitante"] == usuario_efectivo]
     
-    # Calcular gasto del lunes: si ya auditaron 'Real' se usa 'Real', si no, se toma 'Importe'
     gasto_lunes = sub_l["Real"].sum()
     if gasto_lunes == 0.0:
         gasto_lunes = sub_l["Importe"].sum()
@@ -732,6 +732,12 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
+    todos_ops = [""]
+    for l_ops in OPERADORES_POR_SOLICITANTE.values():
+        for o in l_ops:
+            if o not in todos_ops:
+                todos_ops.append(o)
+
     # 2. CARGA LUNES (FORMATO Y EDITOR FINAL)
     with tab_lunes:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
@@ -740,13 +746,6 @@ else:
         df_lunes_view = df_lunes.copy()
         df_lunes_view["Operador"] = df_lunes_view["Operador"].apply(limpiar_texto_operador)
         
-        # Para que el editor use listas desplegables pero no mezcle operadores
-        todos_ops = [""]
-        for l_ops in OPERADORES_POR_SOLICITANTE.values():
-            for o in l_ops:
-                if o not in todos_ops:
-                    todos_ops.append(o)
-                    
         df_lunes_edit = st.data_editor(
             df_lunes_view,
             use_container_width=True,
