@@ -121,10 +121,36 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
-# --- GESTIÓN DE DATOS ---
+# --- GESTIÓN Y VALIDACIÓN DE DATOS ---
+def asegurar_columnas(df):
+    columnas_requeridas = {
+        "Operador_Lunes": "",
+        "Importe_Lunes": 0.0,
+        "Real_Lunes": 0.0,
+        "Operador_Jueves": "",
+        "Importe_Jueves": 0.0,
+        "Real_Jueves": 0.0
+    }
+    
+    # Migrar si venía de versión vieja
+    if "Importe_Sol" in df.columns and "Importe_Lunes" not in df.columns:
+        df["Importe_Lunes"] = df["Importe_Sol"]
+    if "Operador_Sol" in df.columns and "Operador_Lunes" not in df.columns:
+        df["Operador_Lunes"] = df["Operador_Sol"]
+    if "Importe_Real" in df.columns and "Real_Lunes" not in df.columns:
+        df["Real_Lunes"] = df["Importe_Real"]
+        
+    for col, val_def in columnas_requeridas.items():
+        if col not in df.columns:
+            df[col] = val_def
+            
+    return df
+
 def obtener_datos_sheets(forzar=False):
     if "df_datos_persistentes" in st.session_state and not forzar:
-        return st.session_state.df_datos_persistentes.copy()
+        df_mem = st.session_state.df_datos_persistentes
+        if "Importe_Lunes" in df_mem.columns:
+            return df_mem.copy()
 
     filas_dict = {}
     try:
@@ -179,6 +205,7 @@ def obtener_datos_sheets(forzar=False):
             })
             
     df_res = pd.DataFrame(filas_finales)
+    df_res = asegurar_columnas(df_res)
     st.session_state.df_datos_persistentes = df_res.copy()
     return df_res
 
@@ -239,7 +266,7 @@ def enviar_datos_sheets(registros_a_enviar, turno="lunes", f_elab=None, f_prog=N
         return False
 
 # ==========================================
-# GENERADORES DE ARCHIVOS OFICIALES (LUNES / JUEVES)
+# GENERADORES DE ARCHIVOS OFICIALES
 # ==========================================
 def generar_excel_oficial_formato(df_datos, dia_reporte, f_elab, f_prog):
     output = io.BytesIO()
@@ -509,8 +536,6 @@ if not es_admin:
     presupuesto_semanal_total = presupuestos_actuales.get(usuario_efectivo, 0.00)
     df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
-    # Si es Lunes: Saldo disponible es el total semanal
-    # Si es Jueves: Saldo disponible = Total Semanal - Real Lunes (o Importe Lunes si aún no auditan)
     total_lunes_gastado = df_solicitante["Real_Lunes"].sum()
     if total_lunes_gastado == 0.0:
         total_lunes_gastado = df_solicitante["Importe_Lunes"].sum()
@@ -746,7 +771,6 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    # Operadores catálogo para selectboxes
     todos_los_operadores = [""]
     for l_ops in OPERADORES_POR_SOLICITANTE.values():
         for o in l_ops:
