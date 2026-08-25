@@ -114,7 +114,7 @@ def calcular_presupuesto_efectivo():
     presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
-# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
+# --- GESTIÓN DE DATOS ---
 def obtener_datos_sheets(forzar=False):
     if "df_datos_persistentes" in st.session_state and not forzar:
         return st.session_state.df_datos_persistentes.copy()
@@ -193,8 +193,11 @@ def enviar_datos_sheets(registros_a_enviar, tipo="solicitado", f_elab=None, f_pr
         st.session_state.df_datos_persistentes = df_mem
 
     try:
-        res = requests.post(WEBHOOK_URL, json=payload, timeout=10, allow_redirects=True)
-        return res.status_code == 200
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=12, allow_redirects=True)
+        if res.status_code == 200:
+            resp_json = res.json()
+            return resp_json.get("status") == "success"
+        return False
     except Exception:
         return False
 
@@ -541,9 +544,11 @@ if not es_admin:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
                 with st.spinner("Guardando en Google Sheets..."):
-                    enviar_datos_sheets(df_edit_movil, tipo="solicitado")
-                    st.success("✅ ¡Solicitud guardada con éxito en Google Sheets!")
-                    st.rerun()
+                    exito = enviar_datos_sheets(df_edit_movil, tipo="solicitado")
+                    if exito:
+                        st.success("✅ ¡Solicitud guardada con éxito en Google Sheets!")
+                    else:
+                        st.error("Error al comunicarse con Google Sheets. Revisa la conexión.")
 
 # ==========================================
 # 4. VISTA ADMINISTRADOR (LIAN)
@@ -714,10 +719,12 @@ else:
         
         if st.button("💾 Guardar Cambios Realizados por Admin en Google Sheets", type="primary", use_container_width=True):
             with st.spinner("Guardando modificaciones en Google Sheets..."):
-                enviar_datos_sheets(df_admin_edit, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                st.success("✅ ¡Cambios administrativos guardados y sincronizados!")
-                st.rerun()
-        
+                exito = enviar_datos_sheets(df_admin_edit, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                if exito:
+                    st.success("✅ ¡Cambios administrativos guardados y sincronizados!")
+                else:
+                    st.error("Error al guardar en Google Sheets.")
+
         st.markdown("---")
         
         df_solo_cargas_sol = df_admin_edit[df_admin_edit["Importe_Sol"] > 0].copy()
@@ -783,11 +790,13 @@ else:
                     df_mi_carga = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
                     df_mi_carga["Operador_Sol"] = val_op_lian
                     df_mi_carga["Importe_Sol"] = val_imp_lian
-                    enviar_datos_sheets(df_mi_carga, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Tu carga fue registrada correctamente.")
-                    st.rerun()
+                    exito = enviar_datos_sheets(df_mi_carga, tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    if exito:
+                        st.success("✅ Tu carga fue registrada correctamente.")
+                    else:
+                        st.error("Error al registrar tu carga.")
 
-    # 4. AUDITORÍA Y CARGA REAL (CON GUARDADO DIRECTO A PESTAÑA HISTÓRICO)
+    # 4. AUDITORÍA Y CARGA REAL (CON ARCHIVADO EN HISTÓRICO)
     with tab_auditoria:
         st.markdown("##### 🔍 Conciliación y Registro de Cargas Reales Comprobadas")
         st.caption("Captura el monto realmente cargado para calcular diferencias y archivarlo:")
@@ -822,13 +831,12 @@ else:
         
         st.write("")
         if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
-            with st.spinner("Guardando en hoja 'carga' y archivando en 'historico'..."):
-                # Generar detalle en texto para la columna H de la pestaña 'historico'
+            with st.spinner("Guardando en pestaña 'carga' y registrando en 'historico'..."):
                 cargas_efectuadas = df_real_edit[df_real_edit["Importe_Real"] > 0]
                 detalles_txt_lista = []
                 for _, r_c in cargas_efectuadas.iterrows():
                     detalles_txt_lista.append(f"{r_c['Operador_Sol']} ({r_c['Vehículo']} - ${r_c['Importe_Real']:,.2f})")
-                detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas registradas"
+                detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas reales registradas"
                 
                 folio_generado = f"CARGA-{f_prog.strftime('%Y%m%d')}"
                 
@@ -852,10 +860,9 @@ else:
                 )
                 
                 if exito:
-                    st.success(f"✅ ¡Cargas reales sincronizadas y folio **{folio_generado}** archivado en 'historico'!")
-                    st.rerun()
+                    st.success(f"✅ ¡Cargas reales guardadas en 'carga' y folio **{folio_generado}** registrado en 'historico'!")
                 else:
-                    st.error("Hubo un error de conexión al guardar en Google Sheets.")
+                    st.error("⚠️ Error de comunicación. Verifica que hayas implementado la 'Nueva versión' en Google Apps Script.")
 
     # 5. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
