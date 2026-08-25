@@ -48,20 +48,21 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# MAPEO EXACTO A LAS FILAS DE TU GOOGLE SHEETS
+# MAPEO IDÉNTICO FILA POR FILA A TU HOJA DE GOOGLE SHEETS
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    22: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
     23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
 USUARIOS_PASSWORD = {
@@ -749,7 +750,7 @@ else:
         df_lunes_edit = st.data_editor(
             df_lunes_view,
             use_container_width=True,
-            height=490,
+            height=530,  # Altura para las 13 filas completas (12 a 24)
             disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
@@ -761,7 +762,7 @@ else:
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_lunes_oficial"
+            key="admin_editor_lunes_final"
         )
         
         if st.button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True):
@@ -806,7 +807,7 @@ else:
         df_jueves_edit = st.data_editor(
             df_jueves_view,
             use_container_width=True,
-            height=490,
+            height=530,
             disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
@@ -818,7 +819,7 @@ else:
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_jueves_oficial"
+            key="admin_editor_jueves_final"
         )
         
         if st.button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True):
@@ -904,7 +905,7 @@ else:
             df_aud_l_edit = st.data_editor(
                 df_lunes.copy(),
                 use_container_width=True,
-                height=400,
+                height=450,
                 disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
                 column_config={
                     "Vehículo": st.column_config.TextColumn("Vehículo"),
@@ -914,7 +915,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_lunes"
+                key="aud_editor_lunes_v2"
             )
             
             if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -927,7 +928,7 @@ else:
             df_aud_j_edit = st.data_editor(
                 df_jueves.copy(),
                 use_container_width=True,
-                height=400,
+                height=450,
                 disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
                 column_config={
                     "Vehículo": st.column_config.TextColumn("Vehículo"),
@@ -937,7 +938,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_jueves"
+                key="aud_editor_jueves_v2"
             )
             
             if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
