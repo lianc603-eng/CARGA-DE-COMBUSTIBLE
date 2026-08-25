@@ -8,7 +8,6 @@ import io
 import os
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 from fpdf import FPDF
 
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
@@ -48,7 +47,7 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# MAPEO EXACTO A LAS FILAS DE GOOGLE SHEETS
+# MAPEO EXACTO A LAS 13 FILAS DE GOOGLE SHEETS
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -129,7 +128,9 @@ def validar_operador_para_fila(solicitante, op_texto):
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES) ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
-        return st.session_state.df_lunes.copy(), st.session_state.df_jueves.copy()
+        df_chk = st.session_state.df_lunes
+        if len(df_chk) == 13 and (df_chk[df_chk["row"] == 24]["Solicitante"].iloc[0] == "QUEVEDO"):
+            return st.session_state.df_lunes.copy(), st.session_state.df_jueves.copy()
 
     filas_lunes = []
     filas_jueves = []
@@ -148,16 +149,11 @@ def obtener_datos_dos_hojas(forzar=False):
                 info = MAPEO_SOLICITANTES[r]
                 sol = info["solicita"]
                 
-                # Datos Lunes Sanitizados
+                # Datos Lunes
                 item_l = dict_l.get(r, {})
                 op_l = validar_operador_para_fila(sol, item_l.get("encargado", ""))
                 imp_l = float(item_l.get("importe", 0.0)) if item_l.get("importe") else 0.0
                 real_l = float(item_l.get("real", 0.0)) if item_l.get("real") else 0.0
-                
-                # Blindaje fila 22 vs 24
-                if r == 22 and sol == "LIAN" and op_l not in ["", "FRANCISCO ALONZO"]:
-                    op_l = ""
-                    imp_l = 0.0
                 
                 filas_lunes.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
@@ -165,15 +161,11 @@ def obtener_datos_dos_hojas(forzar=False):
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
-                # Datos Jueves Sanitizados
+                # Datos Jueves
                 item_j = dict_j.get(r, {})
                 op_j = validar_operador_para_fila(sol, item_j.get("encargado", ""))
                 imp_j = float(item_j.get("importe", 0.0)) if item_j.get("importe") else 0.0
                 real_j = float(item_j.get("real", 0.0)) if item_j.get("real") else 0.0
-                
-                if r == 22 and sol == "LIAN" and op_j not in ["", "FRANCISCO ALONZO"]:
-                    op_j = ""
-                    imp_j = 0.0
                 
                 filas_jueves.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
@@ -771,7 +763,7 @@ else:
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_lunes_corregido"
+            key="admin_editor_lunes_final_v5"
         )
         
         if st.button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True):
@@ -825,7 +817,7 @@ else:
                 "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_jueves_corregido"
+            key="admin_editor_jueves_final_v5"
         )
         
         if st.button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True):
@@ -921,7 +913,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_lunes_v3"
+                key="aud_editor_lunes_final_v5"
             )
             
             if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -944,7 +936,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_jueves_v3"
+                key="aud_editor_jueves_final_v5"
             )
             
             if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
