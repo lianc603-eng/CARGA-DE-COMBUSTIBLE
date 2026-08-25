@@ -24,16 +24,18 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 CONFIG_FILE = "config_sistema.json"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
+# Presupuestos base oficiales de la plantilla (Suma = $3,800.00)
 PRESUPUESTO_BASE_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 200.00,
+    "COB CHAVEZ NARCISO DEL JESUS": 400.00,  # 2 motos x $200.00
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "NOEL CHAN": 850.00,
-    "LIAN": 150.00,
-    "QUEVEDO": 1500.00,
-    "RENAN/HELDER": 500.00,
+    "NOEL CHAN": 850.00,                     # 5 motos
+    "LIAN": 150.00,                          # 1 moto
+    "QUEVEDO": 1500.00,                      # 1 camioneta RAM
+    "RENAN/HELDER": 500.00,                  # 1 automóvil Jetta
 }
 
+# Catálogo oficial de operadores autorizados
 OPERADORES_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": ["JESUS COB"],
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
@@ -48,20 +50,20 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
+# Mapeo idéntico a la plantilla de 12 unidades oficiales
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    15: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTOCICLETA HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    21: {"solicita": "LIAN", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    22: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
     23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
 USUARIOS_PASSWORD = {
@@ -117,7 +119,6 @@ def calcular_presupuesto_efectivo():
 
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_sheets(forzar=False):
-    # Si ya tenemos datos en la sesión y no se forzó recarga, usarlos
     if "df_datos_persistentes" in st.session_state and not forzar:
         return st.session_state.df_datos_persistentes.copy()
 
@@ -180,7 +181,6 @@ def enviar_datos_sheets(registros_a_enviar, tipo="solicitado", f_elab=None, f_pr
             "importe": float(imp) if pd.notna(imp) else 0.0
         })
         
-    # Actualizar inmediatamente la copia persistente en memoria para evitar desfases
     if "df_datos_persistentes" in st.session_state:
         df_mem = st.session_state.df_datos_persistentes
         for _, r_env in registros_a_enviar.iterrows():
@@ -268,7 +268,7 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[11].height = 28
 
-    for r_num in range(12, 25):
+    for r_num in sorted(MAPEO_SOLICITANTES.keys()):
         row_info = df_datos[df_datos["row"] == r_num]
         
         if not row_info.empty:
@@ -308,21 +308,21 @@ def generar_excel_oficial_formato(df_datos, f_elab, f_prog):
         if imp_val == 0.0:
             ws.row_dimensions[r_num].hidden = True
 
-    c_lbl_tot = ws.cell(row=25, column=6, value="TOTAL")
+    c_lbl_tot = ws.cell(row=24, column=6, value="TOTAL")
     c_lbl_tot.font = fuente_bold
     c_lbl_tot.alignment = Alignment(horizontal="right", vertical="center")
     c_lbl_tot.border = border_cuadricula
     
-    c_val_tot = ws.cell(row=25, column=7, value="=SUM(G12:G24)")
+    c_val_tot = ws.cell(row=24, column=7, value="=SUM(G12:G23)")
     c_val_tot.font = fuente_bold
     c_val_tot.number_format = '$#,##0.00'
     c_val_tot.alignment = Alignment(horizontal="right", vertical="center")
     c_val_tot.border = border_cuadricula
     
     for c_rest in [2, 3, 4, 5, 8, 9]:
-        ws.cell(row=25, column=c_rest).border = border_cuadricula
+        ws.cell(row=24, column=c_rest).border = border_cuadricula
 
-    anchos_cols = {'A': 3, 'B': 24, 'C': 16, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52}
+    anchos_cols = {'A': 3, 'B': 24, 'C': 18, 'D': 12, 'E': 14, 'F': 10, 'G': 14, 'H': 14, 'I': 52}
     for col_letra, ancho in anchos_cols.items():
         ws.column_dimensions[col_letra].width = ancho
 
@@ -542,7 +542,6 @@ if not es_admin:
                 st.error("No puedes guardar si excedes el presupuesto autorizado.")
             else:
                 with st.spinner("Guardando en Google Sheets..."):
-                    # 👉 SOLO SE ENVÍAN LAS FILAS DE ESTE SOLICITANTE (SIN AFECTAR A LOS DEMÁS)
                     enviar_datos_sheets(df_edit_movil, tipo="solicitado")
                     st.success("✅ ¡Solicitud guardada con éxito en Google Sheets!")
                     st.rerun()
@@ -782,7 +781,6 @@ else:
                     )
                 
                 if st.button("💾 Guardar Mi Carga", type="primary", use_container_width=True):
-                    # Guardar solo la fila de LIAN
                     df_mi_carga = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
                     df_mi_carga["Operador_Sol"] = val_op_lian
                     df_mi_carga["Importe_Sol"] = val_imp_lian
