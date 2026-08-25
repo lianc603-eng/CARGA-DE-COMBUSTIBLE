@@ -24,18 +24,16 @@ ZONA_HORARIA = pytz.timezone("America/Merida")
 CONFIG_FILE = "config_sistema.json"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzOjgha2Zjyog01t6LmA_R--EB4Ecqv2ifO_i2YJbLRLbXGShbu5uzFVi85FUTGplM8/exec"
 
-# Presupuestos base oficiales de la plantilla (Suma = $3,800.00)
 PRESUPUESTO_BASE_POR_SOLICITANTE = {
-    "COB CHAVEZ NARCISO DEL JESUS": 400.00,  # 2 motos x $200.00
+    "COB CHAVEZ NARCISO DEL JESUS": 400.00,
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
-    "NOEL CHAN": 850.00,                     # 5 motos
-    "LIAN": 150.00,                          # 1 moto
-    "QUEVEDO": 1500.00,                      # 1 camioneta RAM
-    "RENAN/HELDER": 500.00,                  # 1 automóvil Jetta
+    "NOEL CHAN": 850.00,
+    "LIAN": 150.00,
+    "QUEVEDO": 1500.00,
+    "RENAN/HELDER": 500.00,
 }
 
-# Catálogo oficial de operadores autorizados
 OPERADORES_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": ["JESUS COB"],
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
@@ -50,7 +48,6 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# Mapeo idéntico a la plantilla de 12 unidades oficiales
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTOCICLETA SUZUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -165,12 +162,14 @@ def obtener_datos_sheets(forzar=False):
     st.session_state.df_datos_persistentes = df_res.copy()
     return df_res
 
-def enviar_datos_sheets(registros_a_enviar, tipo="solicitado", f_elab=None, f_prog=None):
+def enviar_datos_sheets(registros_a_enviar, tipo="solicitado", f_elab=None, f_prog=None, historico_obj=None):
     payload = {"tipo": tipo, "registros": []}
     if f_elab:
         payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
     if f_prog:
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
+    if historico_obj:
+        payload["historico"] = historico_obj
         
     for _, fila in registros_a_enviar.iterrows():
         enc = fila["Operador_Sol"] if tipo == "solicitado" else fila.get("Operador_Real", fila["Operador_Sol"])
@@ -788,10 +787,10 @@ else:
                     st.success("✅ Tu carga fue registrada correctamente.")
                     st.rerun()
 
-    # 4. AUDITORÍA Y CARGA REAL
+    # 4. AUDITORÍA Y CARGA REAL (CON GUARDADO DIRECTO A PESTAÑA HISTÓRICO)
     with tab_auditoria:
         st.markdown("##### 🔍 Conciliación y Registro de Cargas Reales Comprobadas")
-        st.caption("Captura el monto realmente cargado para calcular diferencias:")
+        st.caption("Captura el monto realmente cargado para calcular diferencias y archivarlo:")
         
         df_real_edit = st.data_editor(
             df_actual.copy(),
@@ -823,9 +822,40 @@ else:
         
         st.write("")
         if st.button("💾 Guardar Cargas Reales en Sheets", type="primary", use_container_width=True):
-            enviar_datos_sheets(df_real_edit, tipo="real", f_elab=f_elab, f_prog=f_prog)
-            st.success("✅ Cargas reales sincronizadas correctamente en Google Sheets.")
-            st.rerun()
+            with st.spinner("Guardando en hoja 'carga' y archivando en 'historico'..."):
+                # Generar detalle en texto para la columna H de la pestaña 'historico'
+                cargas_efectuadas = df_real_edit[df_real_edit["Importe_Real"] > 0]
+                detalles_txt_lista = []
+                for _, r_c in cargas_efectuadas.iterrows():
+                    detalles_txt_lista.append(f"{r_c['Operador_Sol']} ({r_c['Vehículo']} - ${r_c['Importe_Real']:,.2f})")
+                detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas registradas"
+                
+                folio_generado = f"CARGA-{f_prog.strftime('%Y%m%d')}"
+                
+                historico_payload = {
+                    "folio": folio_generado,
+                    "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
+                    "fecha_prog": f_prog.strftime("%d/%m/%Y"),
+                    "fecha_registro": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                    "total_solicitado": float(total_global_sol),
+                    "total_ejercido": float(total_global_real),
+                    "ahorro": float(ahorro_vs_sol),
+                    "detalle_unidades": detalles_txt
+                }
+                
+                exito = enviar_datos_sheets(
+                    df_real_edit, 
+                    tipo="real", 
+                    f_elab=f_elab, 
+                    f_prog=f_prog, 
+                    historico_obj=historico_payload
+                )
+                
+                if exito:
+                    st.success(f"✅ ¡Cargas reales sincronizadas y folio **{folio_generado}** archivado en 'historico'!")
+                    st.rerun()
+                else:
+                    st.error("Hubo un error de conexión al guardar en Google Sheets.")
 
     # 5. MODO PRUEBAS Y MANTENIMIENTO
     with tab_mantenimiento:
