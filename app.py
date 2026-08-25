@@ -121,141 +121,106 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
-# --- GESTIÓN Y VALIDACIÓN DE DATOS ---
-def asegurar_columnas(df):
-    columnas_requeridas = {
-        "Operador_Lunes": "",
-        "Importe_Lunes": 0.0,
-        "Real_Lunes": 0.0,
-        "Operador_Jueves": "",
-        "Importe_Jueves": 0.0,
-        "Real_Jueves": 0.0
-    }
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES SEPARADOS) ---
+def obtener_datos_dos_hojas(forzar=False):
+    if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
+        return st.session_state.df_lunes.copy(), st.session_state.df_jueves.copy()
+
+    filas_lunes = []
+    filas_jueves = []
     
-    # Migrar si venía de versión vieja
-    if "Importe_Sol" in df.columns and "Importe_Lunes" not in df.columns:
-        df["Importe_Lunes"] = df["Importe_Sol"]
-    if "Operador_Sol" in df.columns and "Operador_Lunes" not in df.columns:
-        df["Operador_Lunes"] = df["Operador_Sol"]
-    if "Importe_Real" in df.columns and "Real_Lunes" not in df.columns:
-        df["Real_Lunes"] = df["Importe_Real"]
-        
-    for col, val_def in columnas_requeridas.items():
-        if col not in df.columns:
-            df[col] = val_def
-            
-    return df
-
-def obtener_datos_sheets(forzar=False):
-    if "df_datos_persistentes" in st.session_state and not forzar:
-        df_mem = st.session_state.df_datos_persistentes
-        if "Importe_Lunes" in df_mem.columns:
-            return df_mem.copy()
-
-    filas_dict = {}
     try:
         res = requests.get(WEBHOOK_URL, timeout=8, allow_redirects=True)
         if res.status_code == 200:
-            datos_raw = res.json().get("data", [])
-            for item in datos_raw:
-                r = int(item.get("row", 0))
-                if r in MAPEO_SOLICITANTES:
-                    op_l = limpiar_texto_operador(item.get("encargado_lunes") or item.get("encargado_solicitado"))
-                    imp_l = item.get("importe_lunes") if item.get("importe_lunes") is not None else item.get("importe_solicitado", 0.0)
-                    real_l = item.get("real_lunes", 0.0)
-                    
-                    op_j = limpiar_texto_operador(item.get("encargado_jueves") or item.get("encargado_real"))
-                    imp_j = item.get("importe_jueves", 0.0)
-                    real_j = item.get("real_jueves", 0.0)
-
-                    filas_dict[r] = {
-                        "row": r,
-                        "Solicitante": MAPEO_SOLICITANTES[r]["solicita"],
-                        "Vehículo": MAPEO_SOLICITANTES[r]["vehiculo"],
-                        "Placa": MAPEO_SOLICITANTES[r]["placa"],
-                        "Actividad": MAPEO_SOLICITANTES[r]["actividad"],
-                        "Operador_Lunes": op_l,
-                        "Importe_Lunes": float(imp_l) if imp_l else 0.0,
-                        "Real_Lunes": float(real_l) if real_l else 0.0,
-                        "Operador_Jueves": op_j,
-                        "Importe_Jueves": float(imp_j) if imp_j else 0.0,
-                        "Real_Jueves": float(real_j) if real_j else 0.0
-                    }
+            datos_json = res.json()
+            raw_lunes = datos_json.get("lunes", [])
+            raw_jueves = datos_json.get("jueves", [])
+            
+            dict_l = {int(it["row"]): it for it in raw_lunes if "row" in it}
+            dict_j = {int(it["row"]): it for it in raw_jueves if "row" in it}
+            
+            for r in sorted(MAPEO_SOLICITANTES.keys()):
+                info = MAPEO_SOLICITANTES[r]
+                # Datos Lunes
+                item_l = dict_l.get(r, {})
+                op_l = limpiar_texto_operador(item_l.get("encargado", ""))
+                imp_l = float(item_l.get("importe", 0.0)) if item_l.get("importe") else 0.0
+                real_l = float(item_l.get("real", 0.0)) if item_l.get("real") else 0.0
+                
+                filas_lunes.append({
+                    "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                    "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Operador": op_l, "Importe": imp_l, "Real": real_l
+                })
+                
+                # Datos Jueves
+                item_j = dict_j.get(r, {})
+                op_j = limpiar_texto_operador(item_j.get("encargado", ""))
+                imp_j = float(item_j.get("importe", 0.0)) if item_j.get("importe") else 0.0
+                real_j = float(item_j.get("real", 0.0)) if item_j.get("real") else 0.0
+                
+                filas_jueves.append({
+                    "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                    "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Operador": op_j, "Importe": imp_j, "Real": real_j
+                })
     except Exception:
         pass
 
-    filas_finales = []
-    for r in sorted(MAPEO_SOLICITANTES.keys()):
-        if r in filas_dict:
-            filas_finales.append(filas_dict[r])
-        else:
+    if not filas_lunes:
+        for r in sorted(MAPEO_SOLICITANTES.keys()):
             info = MAPEO_SOLICITANTES[r]
-            filas_finales.append({
-                "row": r,
-                "Solicitante": info["solicita"],
-                "Vehículo": info["vehiculo"],
-                "Placa": info["placa"],
-                "Actividad": info["actividad"],
-                "Operador_Lunes": "",
-                "Importe_Lunes": 0.0,
-                "Real_Lunes": 0.0,
-                "Operador_Jueves": "",
-                "Importe_Jueves": 0.0,
-                "Real_Jueves": 0.0
+            filas_lunes.append({
+                "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                "Placa": info["placa"], "Actividad": info["actividad"],
+                "Operador": "", "Importe": 0.0, "Real": 0.0
             })
-            
-    df_res = pd.DataFrame(filas_finales)
-    df_res = asegurar_columnas(df_res)
-    st.session_state.df_datos_persistentes = df_res.copy()
-    return df_res
+            filas_jueves.append({
+                "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
+                "Placa": info["placa"], "Actividad": info["actividad"],
+                "Operador": "", "Importe": 0.0, "Real": 0.0
+            })
 
-def enviar_datos_sheets(registros_a_enviar, turno="lunes", f_elab=None, f_prog=None, historico_obj=None):
-    payload = {"tipo": turno, "turno": turno, "registros": []}
+    df_l = pd.DataFrame(filas_lunes)
+    df_j = pd.DataFrame(filas_jueves)
+    
+    st.session_state.df_lunes = df_l.copy()
+    st.session_state.df_jueves = df_j.copy()
+    return df_l, df_j
+
+def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None, f_prog=None, historico_obj=None):
+    payload = {
+        "hoja": hoja,
+        "tipo": tipo,
+        "registros": []
+    }
     if f_elab:
         payload["fecha_elaboro"] = f_elab.strftime("%d/%m/%Y")
     if f_prog:
         payload["fecha_prog"] = f_prog.strftime("%d/%m/%Y")
     if historico_obj:
         payload["historico"] = historico_obj
-        
-    for _, fila in registros_a_enviar.iterrows():
-        if turno == "lunes":
-            enc = fila["Operador_Lunes"]
-            imp = fila["Importe_Lunes"]
-        elif turno == "real_lunes":
-            enc = fila["Operador_Lunes"]
-            imp = fila["Real_Lunes"]
-        elif turno == "jueves":
-            enc = fila["Operador_Jueves"]
-            imp = fila["Importe_Jueves"]
-        elif turno == "real_jueves":
-            enc = fila["Operador_Jueves"]
-            imp = fila["Real_Jueves"]
-        else:
-            enc = ""
-            imp = 0.0
 
+    for _, fila in df_a_enviar.iterrows():
+        enc = fila["Operador"]
+        imp = fila["Importe"] if tipo == "solicitado" else fila["Real"]
         payload["registros"].append({
             "row": int(fila["row"]),
             "encargado": limpiar_texto_operador(enc),
             "importe": float(imp) if pd.notna(imp) else 0.0
         })
-        
-    if "df_datos_persistentes" in st.session_state:
-        df_mem = st.session_state.df_datos_persistentes
-        for _, r_env in registros_a_enviar.iterrows():
+
+    key_state = "df_lunes" if hoja == "lunes" else "df_jueves"
+    if key_state in st.session_state:
+        df_mem = st.session_state[key_state]
+        for _, r_env in df_a_enviar.iterrows():
             mask = df_mem["row"] == r_env["row"]
-            if turno == "lunes":
-                df_mem.loc[mask, "Operador_Lunes"] = limpiar_texto_operador(r_env["Operador_Lunes"])
-                df_mem.loc[mask, "Importe_Lunes"] = r_env["Importe_Lunes"]
-            elif turno == "real_lunes":
-                df_mem.loc[mask, "Real_Lunes"] = r_env["Real_Lunes"]
-            elif turno == "jueves":
-                df_mem.loc[mask, "Operador_Jueves"] = limpiar_texto_operador(r_env["Operador_Jueves"])
-                df_mem.loc[mask, "Importe_Jueves"] = r_env["Importe_Jueves"]
-            elif turno == "real_jueves":
-                df_mem.loc[mask, "Real_Jueves"] = r_env["Real_Jueves"]
-        st.session_state.df_datos_persistentes = df_mem
+            if tipo == "solicitado":
+                df_mem.loc[mask, "Operador"] = limpiar_texto_operador(r_env["Operador"])
+                df_mem.loc[mask, "Importe"] = r_env["Importe"]
+            else:
+                df_mem.loc[mask, "Real"] = r_env["Real"]
+        st.session_state[key_state] = df_mem
 
     try:
         res = requests.post(WEBHOOK_URL, json=payload, timeout=12, allow_redirects=True)
@@ -268,12 +233,12 @@ def enviar_datos_sheets(registros_a_enviar, turno="lunes", f_elab=None, f_prog=N
 # ==========================================
 # GENERADORES DE ARCHIVOS OFICIALES
 # ==========================================
-def generar_excel_oficial_formato(df_datos, dia_reporte, f_elab, f_prog):
+def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     
     ws = wb.active
-    ws.title = "carga"
+    ws.title = dia_nombre.lower()
     ws.views.sheetView[0].showGridLines = True
     
     fuente_titulo = Font(name="Calibri", size=10, bold=True)
@@ -326,18 +291,15 @@ def generar_excel_oficial_formato(df_datos, dia_reporte, f_elab, f_prog):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[11].height = 28
 
-    col_op = "Operador_Lunes" if dia_reporte == "Lunes" else "Operador_Jueves"
-    col_imp = "Importe_Lunes" if dia_reporte == "Lunes" else "Importe_Jueves"
-
     for r_num in sorted(MAPEO_SOLICITANTES.keys()):
         row_info = df_datos[df_datos["row"] == r_num]
         
         if not row_info.empty:
             item = row_info.iloc[0]
-            op_nombre = limpiar_texto_operador(item[col_op])
+            op_nombre = limpiar_texto_operador(item["Operador"])
             veh = str(item["Vehículo"]).strip()
             plc = str(item["Placa"]).strip()
-            imp_val = float(item[col_imp])
+            imp_val = float(item["Importe"])
             act_text = str(item["Actividad"]).strip()
         else:
             op_nombre = ""
@@ -389,7 +351,7 @@ def generar_excel_oficial_formato(df_datos, dia_reporte, f_elab, f_prog):
     wb.save(output)
     return output.getvalue()
 
-def generar_pdf_oficial(df_cargas, dia_reporte, f_elab, f_prog):
+def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -397,7 +359,7 @@ def generar_pdf_oficial(df_cargas, dia_reporte, f_elab, f_prog):
     pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 6, 'H. AYUNTAMIENTO DE CAMPECHE', 0, 1, 'C')
     pdf.set_font('Helvetica', 'B', 10)
-    pdf.cell(0, 5, f'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE - OFICIO DE CARGA {dia_reporte.upper()}', 0, 1, 'C')
+    pdf.cell(0, 5, f'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE - OFICIO DE CARGA {dia_nombre.upper()}', 0, 1, 'C')
     pdf.ln(3)
     
     pdf.set_font('Helvetica', '', 9)
@@ -408,8 +370,6 @@ def generar_pdf_oficial(df_cargas, dia_reporte, f_elab, f_prog):
     pdf.ln(4)
     
     col_widths = (45, 32, 18, 18, 22, 16, 117)
-    col_op = "Operador_Lunes" if dia_reporte == "Lunes" else "Operador_Jueves"
-    col_imp = "Importe_Lunes" if dia_reporte == "Lunes" else "Importe_Jueves"
     
     with pdf.table(
         col_widths=col_widths, 
@@ -425,18 +385,18 @@ def generar_pdf_oficial(df_cargas, dia_reporte, f_elab, f_prog):
         total = 0.0
         for _, row in df_cargas.iterrows():
             data_row = table.row()
-            data_row.cell(limpiar_texto_operador(row[col_op]))
+            data_row.cell(limpiar_texto_operador(row["Operador"]))
             data_row.cell(str(row["Vehículo"]).strip())
             data_row.cell(str(row["Placa"]).strip())
             data_row.cell('OFICIAL')
-            data_row.cell(f"${float(row[col_imp]):,.2f}")
+            data_row.cell(f"${float(row['Importe']):,.2f}")
             data_row.cell('MAGNA')
             data_row.cell(str(row["Actividad"]).strip())
-            total += float(row[col_imp])
+            total += float(row["Importe"])
             
         pdf.set_font('Helvetica', 'B', 8)
         tot_row = table.row()
-        tot_row.cell(f'TOTAL AUTORIZADO {dia_reporte.upper()}:', colspan=4, align="RIGHT")
+        tot_row.cell(f'TOTAL AUTORIZADO {dia_nombre.upper()}:', colspan=4, align="RIGHT")
         tot_row.cell(f"${total:,.2f}", align="RIGHT")
         tot_row.cell('', colspan=2)
         
@@ -514,7 +474,7 @@ with c2:
 with c3:
     st.write("")
     if st.button("🔄 Sincronizar", use_container_width=True):
-        obtener_datos_sheets(forzar=True)
+        obtener_datos_dos_hojas(forzar=True)
         st.toast("Datos sincronizados con Google Sheets.", icon="✅")
         st.rerun()
     if es_admin_real and st.session_state.vista_simulada:
@@ -527,25 +487,30 @@ with c3:
             st.session_state.vista_simulada = None
             st.rerun()
 
-df_actual = obtener_datos_sheets()
+df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA SOLICITANTE (LUNES / JUEVES CONTROLADO)
+# 3. VISTA SOLICITANTE (LUNES / JUEVES)
 # ==========================================
 if not es_admin:
     presupuesto_semanal_total = presupuestos_actuales.get(usuario_efectivo, 0.00)
-    df_solicitante = df_actual[df_actual["Solicitante"] == usuario_efectivo].copy()
     
-    total_lunes_gastado = df_solicitante["Real_Lunes"].sum()
-    if total_lunes_gastado == 0.0:
-        total_lunes_gastado = df_solicitante["Importe_Lunes"].sum()
+    sub_l = df_lunes[df_lunes["Solicitante"] == usuario_efectivo]
+    sub_j = df_jueves[df_jueves["Solicitante"] == usuario_efectivo]
+    
+    # Calcular gasto del lunes: si ya auditaron 'Real' se usa 'Real', si no, se toma 'Importe'
+    gasto_lunes = sub_l["Real"].sum()
+    if gasto_lunes == 0.0:
+        gasto_lunes = sub_l["Importe"].sum()
         
     if dia_activo == "Lunes":
         saldo_disponible_hoy = presupuesto_semanal_total
         gasto_previo_info = 0.0
+        df_turno_actual = sub_l.copy()
     else:
-        saldo_disponible_hoy = max(0.0, presupuesto_semanal_total - total_lunes_gastado)
-        gasto_previo_info = total_lunes_gastado
+        saldo_disponible_hoy = max(0.0, presupuesto_semanal_total - gasto_lunes)
+        gasto_previo_info = gasto_lunes
+        df_turno_actual = sub_j.copy()
 
     lista_operadores_autorizados = OPERADORES_POR_SOLICITANTE.get(usuario_efectivo, [])
     
@@ -553,22 +518,20 @@ if not es_admin:
         st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:10 PM)**. La captura ha finalizado.")
     else:
         if dia_activo == "Jueves":
-            st.info(f"💡 Se registraron **${gasto_previo_info:,.2f}** cargados el Lunes. Tu saldo restante disponible para este Jueves es **${saldo_disponible_hoy:,.2f}**.")
+            st.info(f"💡 Se cargaron **${gasto_previo_info:,.2f}** el Lunes. Tu saldo restante disponible para este Jueves es **${saldo_disponible_hoy:,.2f}**.")
         st.caption(f"📱 Selecciona los conductores e importes para la carga del **{dia_activo}**:")
     
     with st.form("form_solicitante_movil"):
         nuevos_valores = []
-        col_op_target = "Operador_Lunes" if dia_activo == "Lunes" else "Operador_Jueves"
-        col_imp_target = "Importe_Lunes" if dia_activo == "Lunes" else "Importe_Jueves"
         
-        for idx, row in df_solicitante.iterrows():
+        for idx, row in df_turno_actual.iterrows():
             with st.container(border=True):
                 st.markdown(f"🛵 **{row['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row['Placa']}`**")
                 st.caption(f"📋 **Actividad:** {row['Actividad']}")
                 
                 c_op, c_imp = st.columns([1.5, 1])
                 opciones_operadores = [""] + lista_operadores_autorizados
-                val_actual = limpiar_texto_operador(row[col_op_target])
+                val_actual = limpiar_texto_operador(row["Operador"])
                 
                 if val_actual and val_actual not in opciones_operadores:
                     opciones_operadores.append(val_actual)
@@ -587,7 +550,7 @@ if not es_admin:
                 with c_imp:
                     val_importe = st.number_input(
                         f"Monto {dia_activo} ($)",
-                        value=float(row[col_imp_target]),
+                        value=float(row["Importe"]),
                         step=50.0,
                         min_value=0.0,
                         key=f"imp_{dia_activo}_{row['row']}",
@@ -601,16 +564,13 @@ if not es_admin:
                     "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"],
                     "Actividad": row["Actividad"],
-                    "Operador_Lunes": val_encargado if dia_activo == "Lunes" else row["Operador_Lunes"],
-                    "Importe_Lunes": val_importe if dia_activo == "Lunes" else row["Importe_Lunes"],
-                    "Real_Lunes": row["Real_Lunes"],
-                    "Operador_Jueves": val_encargado if dia_activo == "Jueves" else row["Operador_Jueves"],
-                    "Importe_Jueves": val_importe if dia_activo == "Jueves" else row["Importe_Jueves"],
-                    "Real_Jueves": row["Real_Jueves"]
+                    "Operador": val_encargado,
+                    "Importe": val_importe,
+                    "Real": row["Real"]
                 })
         
         df_edit_movil = pd.DataFrame(nuevos_valores)
-        total_capturado_hoy = df_edit_movil[col_imp_target].sum()
+        total_capturado_hoy = df_edit_movil["Importe"].sum()
         saldo_restante_hoy = saldo_disponible_hoy - total_capturado_hoy
         
         st.divider()
@@ -629,8 +589,8 @@ if not es_admin:
             if total_capturado_hoy > saldo_disponible_hoy:
                 st.error("No puedes guardar si excedes el saldo disponible.")
             else:
-                with st.spinner(f"Guardando solicitud del {dia_activo}..."):
-                    exito = enviar_datos_sheets(df_edit_movil, turno=dia_activo.lower())
+                with st.spinner(f"Guardando solicitud en la pestaña '{dia_activo.lower()}'..."):
+                    exito = enviar_datos_hoja(df_edit_movil, hoja=dia_activo.lower(), tipo="solicitado")
                     if exito:
                         st.success(f"✅ ¡Solicitud del {dia_activo} guardada con éxito en Google Sheets!")
                     else:
@@ -650,10 +610,10 @@ else:
 
     tab_saldos, tab_lunes, tab_jueves, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
         "📊 Monitoreo y Asignación de Presupuestos",
-        "📄 Carga LUNES (Formato y Edición)",
-        "📄 Carga JUEVES (Formato y Edición)",
+        "📄 Formato y Carga LUNES",
+        "📄 Formato y Carga JUEVES",
         "🛵 Mi Carga (LIAN / Alonzo)",
-        "✅ Cierre Semanal y Auditoría",
+        "✅ Auditoría y Cierre Semanal",
         "🛠️ Modo Pruebas y Cierre de Viernes"
     ])
 
@@ -661,8 +621,8 @@ else:
     with tab_saldos:
         st.markdown("##### 💵 Balance Semanal de Presupuestos en Tiempo Real")
         
-        tot_lunes_sol = df_actual["Importe_Lunes"].sum()
-        tot_jueves_sol = df_actual["Importe_Jueves"].sum()
+        tot_lunes_sol = df_lunes["Importe"].sum()
+        tot_jueves_sol = df_jueves["Importe"].sum()
         tot_global_semana = tot_lunes_sol + tot_jueves_sol
         saldo_global_semana = PRESUPUESTO_GLOBAL - tot_global_semana
         
@@ -685,9 +645,10 @@ else:
         st.markdown("##### 📋 Resumen Financiero por Solicitante")
         filas_saldos_area = []
         for sol, p_efectivo in presupuestos_actuales.items():
-            sub_df = df_actual[df_actual["Solicitante"] == sol]
-            sol_l = sub_df["Importe_Lunes"].sum()
-            sol_j = sub_df["Importe_Jueves"].sum()
+            sub_l = df_lunes[df_lunes["Solicitante"] == sol]
+            sub_j = df_jueves[df_jueves["Solicitante"] == sol]
+            sol_l = sub_l["Importe"].sum()
+            sol_j = sub_j["Importe"].sum()
             sol_tot = sol_l + sol_j
             disp_monto = p_efectivo - sol_tot
             
@@ -771,48 +732,49 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    todos_los_operadores = [""]
-    for l_ops in OPERADORES_POR_SOLICITANTE.values():
-        for o in l_ops:
-            if o not in todos_los_operadores:
-                todos_los_operadores.append(o)
-
     # 2. CARGA LUNES (FORMATO Y EDITOR FINAL)
     with tab_lunes:
-        st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES")
+        st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
         st.caption("Modifica libremente operadores y montos del **Lunes** antes de descargar:")
         
-        df_lunes_view = df_actual.copy()
-        df_lunes_view["Operador_Lunes"] = df_lunes_view["Operador_Lunes"].apply(limpiar_texto_operador)
+        df_lunes_view = df_lunes.copy()
+        df_lunes_view["Operador"] = df_lunes_view["Operador"].apply(limpiar_texto_operador)
         
+        # Para que el editor use listas desplegables pero no mezcle operadores
+        todos_ops = [""]
+        for l_ops in OPERADORES_POR_SOLICITANTE.values():
+            for o in l_ops:
+                if o not in todos_ops:
+                    todos_ops.append(o)
+                    
         df_lunes_edit = st.data_editor(
             df_lunes_view,
             use_container_width=True,
             height=490,
-            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real_Lunes", "Operador_Jueves", "Importe_Jueves", "Real_Jueves"],
+            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placa"),
-                "Operador_Lunes": st.column_config.SelectboxColumn("Operador Lunes (Elegir)", options=todos_los_operadores, width="medium"),
-                "Importe_Lunes": st.column_config.NumberColumn("Importe Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "Operador": st.column_config.SelectboxColumn("Operador Lunes (Elegir)", options=todos_ops, width="medium"),
+                "Importe": st.column_config.NumberColumn("Importe Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
                 "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
-                "row": None, "Real_Lunes": None, "Operador_Jueves": None, "Importe_Jueves": None, "Real_Jueves": None
+                "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_lunes"
+            key="admin_editor_lunes_oficial"
         )
         
-        if st.button("💾 Guardar Cambios del LUNES en Google Sheets", type="primary", use_container_width=True):
-            with st.spinner("Guardando modificaciones del Lunes..."):
-                exito = enviar_datos_sheets(df_lunes_edit, turno="lunes", f_elab=f_elab, f_prog=f_prog)
+        if st.button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True):
+            with st.spinner("Guardando en pestaña 'lunes'..."):
+                exito = enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                 if exito:
                     st.success("✅ ¡Cargas del Lunes guardadas y sincronizadas!")
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
         st.markdown("---")
-        df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe_Lunes"] > 0].copy()
+        df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe"] > 0].copy()
         
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
@@ -836,40 +798,40 @@ else:
 
     # 3. CARGA JUEVES (FORMATO Y EDITOR FINAL)
     with tab_jueves:
-        st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES")
+        st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Pestaña 'jueves')")
         st.caption("Modifica libremente operadores y montos del **Jueves** antes de descargar:")
         
-        df_jueves_view = df_actual.copy()
-        df_jueves_view["Operador_Jueves"] = df_jueves_view["Operador_Jueves"].apply(limpiar_texto_operador)
+        df_jueves_view = df_jueves.copy()
+        df_jueves_view["Operador"] = df_jueves_view["Operador"].apply(limpiar_texto_operador)
         
         df_jueves_edit = st.data_editor(
             df_jueves_view,
             use_container_width=True,
             height=490,
-            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador_Lunes", "Importe_Lunes", "Real_Lunes", "Real_Jueves"],
+            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Real"],
             column_config={
                 "Solicitante": st.column_config.TextColumn("Área"),
                 "Vehículo": st.column_config.TextColumn("Vehículo"),
                 "Placa": st.column_config.TextColumn("Placa"),
-                "Operador_Jueves": st.column_config.SelectboxColumn("Operador Jueves (Elegir)", options=todos_los_operadores, width="medium"),
-                "Importe_Jueves": st.column_config.NumberColumn("Importe Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                "Operador": st.column_config.SelectboxColumn("Operador Jueves (Elegir)", options=todos_ops, width="medium"),
+                "Importe": st.column_config.NumberColumn("Importe Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
                 "Actividad": st.column_config.TextColumn("Actividad", width="medium"),
-                "row": None, "Operador_Lunes": None, "Importe_Lunes": None, "Real_Lunes": None, "Real_Jueves": None
+                "row": None, "Real": None
             },
             hide_index=True,
-            key="admin_editor_jueves"
+            key="admin_editor_jueves_oficial"
         )
         
-        if st.button("💾 Guardar Cambios del JUEVES en Google Sheets", type="primary", use_container_width=True):
-            with st.spinner("Guardando modificaciones del Jueves..."):
-                exito = enviar_datos_sheets(df_jueves_edit, turno="jueves", f_elab=f_elab, f_prog=f_prog)
+        if st.button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True):
+            with st.spinner("Guardando en pestaña 'jueves'..."):
+                exito = enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                 if exito:
                     st.success("✅ ¡Cargas del Jueves guardadas y sincronizadas!")
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
         st.markdown("---")
-        df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe_Jueves"] > 0].copy()
+        df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe"] > 0].copy()
         
         col_dj1, col_dj2 = st.columns(2)
         with col_dj1:
@@ -894,72 +856,98 @@ else:
     # 4. MI CARGA (LIAN / FRANCISCO ALONZO)
     with tab_mi_carga:
         st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
-        df_lian = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
+        sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
+        sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
         presupuesto_lian_efectivo = presupuestos_actuales["LIAN"]
         
-        if not df_lian.empty:
-            row_lian = df_lian.iloc[0]
-            val_imp_lunes = float(row_lian["Importe_Lunes"])
-            val_imp_jueves = float(row_lian["Importe_Jueves"])
+        if not sub_l_lian.empty:
+            row_l_lian = sub_l_lian.iloc[0]
+            row_j_lian = sub_j_lian.iloc[0]
             
             with st.container(border=True):
-                st.markdown(f"🛵 **{row_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Autorizado: **${presupuesto_lian_efectivo:,.2f}**")
+                st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Autorizado: **${presupuesto_lian_efectivo:,.2f}**")
                 
                 c_ml1, c_ml2 = st.columns(2)
                 with c_ml1:
                     st.markdown("🗓️ **Carga del Lunes**")
-                    op_l_guardado = limpiar_texto_operador(row_lian["Operador_Lunes"])
+                    op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
                     op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                    imp_l_sel = st.number_input("Monto Lunes ($)", value=val_imp_lunes, step=50.0, min_value=0.0, max_value=float(presupuesto_lian_efectivo), key="ml_imp_l")
+                    imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(presupuesto_lian_efectivo), key="ml_imp_l")
                 
                 with c_ml2:
                     st.markdown("🗓️ **Carga del Jueves**")
                     disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
-                    op_j_guardado = limpiar_texto_operador(row_lian["Operador_Jueves"])
+                    op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
                     op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                    imp_j_sel = st.number_input("Monto Jueves ($)", value=val_imp_jueves, step=50.0, min_value=0.0, max_value=float(disponible_jueves_lian), key="ml_imp_j")
+                    imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(disponible_jueves_lian), key="ml_imp_j")
                 
                 if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
-                    df_mi_carga = df_actual[df_actual["Solicitante"] == "LIAN"].copy()
-                    df_mi_carga["Operador_Lunes"] = op_l_sel
-                    df_mi_carga["Importe_Lunes"] = imp_l_sel
-                    df_mi_carga["Operador_Jueves"] = op_j_sel
-                    df_mi_carga["Importe_Jueves"] = imp_j_sel
+                    df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
+                    df_mi_l["Operador"] = op_l_sel
+                    df_mi_l["Importe"] = imp_l_sel
+                    enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                     
-                    enviar_datos_sheets(df_mi_carga, turno="lunes", f_elab=f_elab, f_prog=f_prog)
-                    enviar_datos_sheets(df_mi_carga, turno="jueves", f_elab=f_elab, f_prog=f_prog)
+                    df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
+                    df_mi_j["Operador"] = op_j_sel
+                    df_mi_j["Importe"] = imp_j_sel
+                    enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                     st.success("✅ Tu carga fue registrada correctamente.")
 
     # 5. AUDITORÍA Y COMPROBACIÓN REAL (LUNES Y JUEVES)
     with tab_auditoria:
-        st.markdown("##### 🔍 Conciliación y Comprobación Real (Lunes y Jueves)")
-        st.caption("Captura lo que realmente cargaron el Lunes y el Jueves para calcular el ahorro total:")
+        st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
+        st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
         
-        df_audit_view = df_actual.copy()
-        df_audit_view["Total_Solicitado_Semana"] = df_audit_view["Importe_Lunes"] + df_audit_view["Importe_Jueves"]
+        c_aud_l, c_aud_j = st.columns(2)
         
-        df_audit_edit = st.data_editor(
-            df_audit_view,
-            use_container_width=True,
-            height=490,
-            disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Importe_Lunes", "Importe_Jueves", "Total_Solicitado_Semana"],
-            column_config={
-                "Solicitante": st.column_config.TextColumn("Área"),
-                "Vehículo": st.column_config.TextColumn("Vehículo"),
-                "Placa": st.column_config.TextColumn("Placa"),
-                "Importe_Lunes": st.column_config.NumberColumn("Sol. Lunes ($)", format="$%.2f"),
-                "Real_Lunes": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "Importe_Jueves": st.column_config.NumberColumn("Sol. Jueves ($)", format="$%.2f"),
-                "Real_Jueves": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                "Total_Solicitado_Semana": st.column_config.NumberColumn("Total Solicitado ($)", format="$%.2f"),
-                "row": None, "Actividad": None, "Operador_Lunes": None, "Operador_Jueves": None
-            },
-            hide_index=True,
-            key="admin_editor_auditoria_completo"
-        )
-        
-        total_sol_semana = df_audit_edit["Total_Solicitado_Semana"].sum()
-        total_real_semana = df_audit_edit["Real_Lunes"].sum() + df_audit_edit["Real_Jueves"].sum()
+        with c_aud_l:
+            st.markdown("📋 **Comprobación Real LUNES**")
+            df_aud_l_edit = st.data_editor(
+                df_lunes.copy(),
+                use_container_width=True,
+                height=400,
+                disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
+                column_config={
+                    "Vehículo": st.column_config.TextColumn("Vehículo"),
+                    "Placa": st.column_config.TextColumn("Placa"),
+                    "Importe": st.column_config.NumberColumn("Sol. Lunes ($)", format="$%.2f"),
+                    "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                    "row": None, "Solicitante": None, "Actividad": None, "Operador": None
+                },
+                hide_index=True,
+                key="aud_editor_lunes"
+            )
+            
+            if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
+                exito = enviar_datos_hoja(df_aud_l_edit, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                if exito:
+                    st.success("✅ Real del Lunes guardado.")
+
+        with c_aud_j:
+            st.markdown("📋 **Comprobación Real JUEVES**")
+            df_aud_j_edit = st.data_editor(
+                df_jueves.copy(),
+                use_container_width=True,
+                height=400,
+                disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
+                column_config={
+                    "Vehículo": st.column_config.TextColumn("Vehículo"),
+                    "Placa": st.column_config.TextColumn("Placa"),
+                    "Importe": st.column_config.NumberColumn("Sol. Jueves ($)", format="$%.2f"),
+                    "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
+                    "row": None, "Solicitante": None, "Actividad": None, "Operador": None
+                },
+                hide_index=True,
+                key="aud_editor_jueves"
+            )
+            
+            if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
+                exito = enviar_datos_hoja(df_aud_j_edit, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                if exito:
+                    st.success("✅ Real del Jueves guardado.")
+
+        total_sol_semana = df_aud_l_edit["Importe"].sum() + df_aud_j_edit["Importe"].sum()
+        total_real_semana = df_aud_l_edit["Real"].sum() + df_aud_j_edit["Real"].sum()
         ahorro_semana = total_sol_semana - total_real_semana
         saldo_libre_global = PRESUPUESTO_GLOBAL - total_real_semana
         
@@ -971,14 +959,15 @@ else:
         r4.metric("Saldo Libre Total", f"${saldo_libre_global:,.2f}", delta_color="normal")
         
         st.write("")
-        if st.button("💾 Guardar Comprobaciones Reales y Archivar en Histórico", type="primary", use_container_width=True):
-            with st.spinner("Guardando en Google Sheets y archivando..."):
-                enviar_datos_sheets(df_audit_edit, turno="real_lunes", f_elab=f_elab, f_prog=f_prog)
-                
+        if st.button("💾 Archivar Balance en Pestaña 'historico'", type="primary", use_container_width=True):
+            with st.spinner("Archivando en pestaña 'historico'..."):
                 detalles_txt_lista = []
-                for _, r_c in df_audit_edit[(df_audit_edit['Real_Lunes'] > 0) | (df_audit_edit['Real_Jueves'] > 0)].iterrows():
-                    tot_u = r_c['Real_Lunes'] + r_c['Real_Jueves']
-                    detalles_txt_lista.append(f"{r_c['Vehículo']} - ${tot_u:,.2f}")
+                for r_num in sorted(MAPEO_SOLICITANTES.keys()):
+                    r_l = df_aud_l_edit[df_aud_l_edit["row"] == r_num].iloc[0]
+                    r_j = df_aud_j_edit[df_aud_j_edit["row"] == r_num].iloc[0]
+                    tot_u = r_l["Real"] + r_j["Real"]
+                    if tot_u > 0:
+                        detalles_txt_lista.append(f"{r_l['Vehículo']} - ${tot_u:,.2f}")
                 detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas reales"
                 
                 folio_generado = f"SEMANA-{f_prog.strftime('%Y%m%d')}"
@@ -993,11 +982,11 @@ else:
                     "detalle_unidades": detalles_txt
                 }
                 
-                exito = enviar_datos_sheets(df_audit_edit, turno="real_jueves", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
+                exito = enviar_datos_hoja(df_aud_j_edit, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
                 if exito:
-                    st.success(f"✅ ¡Auditoría sincronizada y Folio **{folio_generado}** archivado en 'historico'!")
+                    st.success(f"✅ ¡Folio **{folio_generado}** archivado en 'historico'!")
                 else:
-                    st.error("Error al guardar en Google Sheets.")
+                    st.error("Error al archivar.")
 
     # 6. MODO PRUEBAS Y REESTABLECIMIENTO DE VIERNES
     with tab_mantenimiento:
@@ -1006,26 +995,28 @@ else:
         with st.container(border=True):
             st.subheader("🧹 Reestablecer Todo a $0.00 (Cada Viernes)")
             st.write(
-                "Usa este botón los **viernes** tras guardar la auditoría semanal. Limpiará las cargas de Lunes y Jueves para arrancar la siguiente semana en ceros y con presupuestos completos."
+                "Usa este botón los **viernes** tras guardar la auditoría semanal. Limpiará ambas pestañas (`lunes` y `jueves`) a **$0.00** para arrancar la siguiente semana en ceros y con presupuestos completos."
             )
             
             if st.button("🗑️ Reestablecer Todo para la Próxima Semana", type="secondary", use_container_width=True):
-                df_limpio = df_actual.copy()
-                df_limpio["Operador_Lunes"] = ""
-                df_limpio["Importe_Lunes"] = 0.0
-                df_limpio["Real_Lunes"] = 0.0
-                df_limpio["Operador_Jueves"] = ""
-                df_limpio["Importe_Jueves"] = 0.0
-                df_limpio["Real_Jueves"] = 0.0
+                df_l_limpio = df_lunes.copy()
+                df_l_limpio["Operador"] = ""
+                df_l_limpio["Importe"] = 0.0
+                df_l_limpio["Real"] = 0.0
                 
-                enviar_datos_sheets(df_limpio, turno="lunes", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_sheets(df_limpio, turno="real_lunes", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_sheets(df_limpio, turno="jueves", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_sheets(df_limpio, turno="real_jueves", f_elab=f_elab, f_prog=f_prog)
+                df_j_limpio = df_jueves.copy()
+                df_j_limpio["Operador"] = ""
+                df_j_limpio["Importe"] = 0.0
+                df_j_limpio["Real"] = 0.0
+                
+                enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
                 
                 cfg_actual["dia_activo"] = "Lunes"
                 guardar_config(cfg_actual)
-                st.success("✅ ¡Semana reiniciada a $0.00 y lista para el próximo Lunes!")
+                st.success("✅ ¡Pestañas 'lunes' y 'jueves' reiniciadas a $0.00!")
                 st.rerun()
 
         with st.container(border=True):
