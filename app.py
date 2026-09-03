@@ -33,7 +33,6 @@ PRESUPUESTO_BASE_POR_SOLICITANTE = {
     "RENAN/HELDER": 500.00,
 }
 
-# Se agrega FRANCISCO ALONZO a DE LA CRUZ PEREZ WILLIAN ARLEY (86GWU8)
 OPERADORES_POR_SOLICITANTE = {
     "COB CHAVEZ NARCISO DEL JESUS": ["JESUS COB"],
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
@@ -132,7 +131,7 @@ def validar_operador_para_fila(solicitante, op_texto):
     ops_permitidos = OPERADORES_POR_SOLICITANTE.get(solicitante, [])
     return s if s in ops_permitidos else ""
 
-# --- CONSULTA Y ENVÍO A GOOGLE SHEETS (LUNES Y JUEVES) ---
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
         df_chk = st.session_state.df_lunes
@@ -951,14 +950,24 @@ else:
                     st.markdown("🗓️ **Carga del Lunes**")
                     op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
                     op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                    imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(presupuesto_lian_efectivo), key="ml_imp_l")
+                    
+                    val_l_actual = float(row_l_lian["Importe"])
+                    max_l = float(presupuesto_lian_efectivo)
+                    val_l_seguro = max(0.0, min(val_l_actual, max_l))
+                    
+                    imp_l_sel = st.number_input("Monto Lunes ($)", value=val_l_seguro, step=50.0, min_value=0.0, max_value=max_l, key="ml_imp_l")
                 
                 with c_ml2:
                     st.markdown("🗓️ **Carga del Jueves**")
                     disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
                     op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
                     op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                    imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, max_value=float(disponible_jueves_lian), key="ml_imp_j")
+                    
+                    val_j_actual = float(row_j_lian["Importe"])
+                    max_j = float(disponible_jueves_lian)
+                    val_j_seguro = max(0.0, min(val_j_actual, max_j))
+                    
+                    imp_j_sel = st.number_input("Monto Jueves ($)", value=val_j_seguro, step=50.0, min_value=0.0, max_value=max_j, key="ml_imp_j")
                 
                 if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
                     df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
@@ -971,6 +980,7 @@ else:
                     df_mi_j["Importe"] = imp_j_sel
                     enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                     st.success("✅ Tu carga fue registrada correctamente.")
+                    st.rerun()
 
     # 5. AUDITORÍA Y COMPROBACIÓN REAL (LUNES Y JUEVES)
     with tab_auditoria:
@@ -994,7 +1004,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_lunes_final_v6"
+                key="aud_editor_lunes_final_v7"
             )
             
             if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1017,7 +1027,7 @@ else:
                     "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_jueves_final_v6"
+                key="aud_editor_jueves_final_v7"
             )
             
             if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
