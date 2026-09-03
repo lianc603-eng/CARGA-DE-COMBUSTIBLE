@@ -47,7 +47,6 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
-# MAPEO EXACTO A LAS 13 FILAS DE GOOGLE SHEETS
 MAPEO_SOLICITANTES = {
     12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
     13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
@@ -155,7 +154,6 @@ def obtener_datos_dos_hojas(forzar=False):
                 info = MAPEO_SOLICITANTES[r]
                 sol = info["solicita"]
                 
-                # Datos Lunes
                 item_l = dict_l.get(r, {})
                 op_l = validar_operador_para_fila(sol, item_l.get("encargado", ""))
                 imp_l = float(item_l.get("importe", 0.0)) if item_l.get("importe") else 0.0
@@ -167,7 +165,6 @@ def obtener_datos_dos_hojas(forzar=False):
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
-                # Datos Jueves
                 item_j = dict_j.get(r, {})
                 op_j = validar_operador_para_fila(sol, item_j.get("encargado", ""))
                 imp_j = float(item_j.get("importe", 0.0)) if item_j.get("importe") else 0.0
@@ -749,15 +746,15 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    # 2. CARGA LUNES (FORMULARIO CON DESPLEGABLES EXCLUSIVOS POR VEHÍCULO)
+    # 2. CARGA LUNES (CON OPCIÓN DE ELIMINAR CARGA)
     with tab_lunes:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
-        st.caption("Selecciona al operador autorizado de cada vehículo e ingresa el importe para el **Lunes**:")
+        st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
         
         with st.form("form_admin_lunes_exclusivo"):
             nuevos_lunes = []
             
-            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.8, 1.4, 1.1, 2.0, 1.2])
+            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
             c_h1.markdown("**Área / Solicitante**")
             c_h2.markdown("**Vehículo**")
             c_h3.markdown("**Placa**")
@@ -776,7 +773,7 @@ else:
                     
                 idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
                 
-                c_a, c_v, c_p, c_o, c_i = st.columns([1.8, 1.4, 1.1, 2.0, 1.2])
+                c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
                 c_a.write(sol)
                 c_v.write(row["Vehículo"])
                 c_p.code(row["Placa"])
@@ -817,6 +814,25 @@ else:
                     else:
                         st.error("Error al guardar en Google Sheets.")
 
+        # Acciones Rápidas: Botón individual para borrar la carga de un vehículo
+        with st.expander("🗑️ Quitar Carga Específica del LUNES (Regresar Saldo al Presupuesto)"):
+            c_del1, c_del2 = st.columns([3, 1])
+            with c_del1:
+                veh_borrar_l = st.selectbox(
+                    "Selecciona el vehículo cuya carga deseas eliminar:",
+                    options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
+                    key="sel_del_lunes"
+                )
+            with c_del2:
+                st.write("")
+                if st.button("❌ Quitar Carga", key="btn_del_lunes", use_container_width=True):
+                    r_target = int(veh_borrar_l.split(" - ")[0].replace("Fila ", ""))
+                    df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Operador"] = ""
+                    df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Importe"] = 0.0
+                    enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
+                    st.rerun()
+
         st.markdown("---")
         df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe"] > 0].copy()
         
@@ -840,15 +856,15 @@ else:
                 use_container_width=True
             )
 
-    # 3. CARGA JUEVES (FORMULARIO CON DESPLEGABLES EXCLUSIVOS POR VEHÍCULO)
+    # 3. CARGA JUEVES (CON OPCIÓN DE ELIMINAR CARGA)
     with tab_jueves:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Pestaña 'jueves')")
-        st.caption("Selecciona al operador autorizado de cada vehículo e ingresa el importe para el **Jueves**:")
+        st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
         
         with st.form("form_admin_jueves_exclusivo"):
             nuevos_jueves = []
             
-            c_jh1, c_jh2, c_jh3, c_jh4, c_jh5 = st.columns([1.8, 1.4, 1.1, 2.0, 1.2])
+            c_jh1, c_jh2, c_jh3, c_jh4, c_jh5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
             c_jh1.markdown("**Área / Solicitante**")
             c_jh2.markdown("**Vehículo**")
             c_jh3.markdown("**Placa**")
@@ -867,7 +883,7 @@ else:
                     
                 idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
                 
-                c_a, c_v, c_p, c_o, c_i = st.columns([1.8, 1.4, 1.1, 2.0, 1.2])
+                c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
                 c_a.write(sol)
                 c_v.write(row["Vehículo"])
                 c_p.code(row["Placa"])
@@ -907,6 +923,25 @@ else:
                         st.rerun()
                     else:
                         st.error("Error al guardar en Google Sheets.")
+
+        # Acciones Rápidas: Botón individual para borrar la carga de un vehículo (Corrige el caso de Francisco Alonzo)
+        with st.expander("🗑️ Quitar Carga Específica del JUEVES (Regresar Saldo al Presupuesto)"):
+            c_delj1, c_delj2 = st.columns([3, 1])
+            with c_delj1:
+                veh_borrar_j = st.selectbox(
+                    "Selecciona el vehículo cuya carga deseas eliminar:",
+                    options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
+                    key="sel_del_jueves"
+                )
+            with c_delj2:
+                st.write("")
+                if st.button("❌ Quitar Carga", key="btn_del_jueves", use_container_width=True):
+                    r_target = int(veh_borrar_j.split(" - ")[0].replace("Fila ", ""))
+                    df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Operador"] = ""
+                    df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Importe"] = 0.0
+                    enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                    st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
+                    st.rerun()
 
         st.markdown("---")
         df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe"] > 0].copy()
