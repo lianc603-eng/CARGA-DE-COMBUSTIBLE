@@ -47,24 +47,24 @@ TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACION
 TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION DE MEDIO AMBIENTE, COMO LO SON ATENDER REPORTES POR TIRADERO DE AGUAS JABONOSAS, MALTRATO ANIMAL Y CONTAMINACION AUDITIVA, ASI COMO DIVERSOS TIPOS DE CONTAMINACION"
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
+# Mapeo con presupuesto sugerido por vehículo
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 140.0},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
+    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 150.0},
+    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 500.0},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
 }
 
-# --- USUARIOS ACTIVOS EXCLUSIVOS ---
-USUARIOS_PASSWORD = {
+PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
     "VERO": "distribucion123",
     "QUEVEDO": "ambiental2026"
@@ -82,7 +82,8 @@ def leer_config():
         "desbloqueo_horario": False,
         "asignacion_comodin": {},
         "cesion_lian": {},
-        "dia_activo": "Lunes"
+        "dia_activo": "Lunes",
+        "passwords": PASSWORDS_DEFAULT.copy()
     }
 
 def guardar_config(cfg):
@@ -91,6 +92,20 @@ def guardar_config(cfg):
             json.dump(cfg, f)
     except Exception:
         pass
+
+def obtener_passwords():
+    cfg = leer_config()
+    pwds = cfg.get("passwords", {})
+    # Asegurar que existan los 3 usuarios por defecto si faltan
+    actualizado = False
+    for u, p in PASSWORDS_DEFAULT.items():
+        if u not in pwds:
+            pwds[u] = p
+            actualizado = True
+    if actualizado:
+        cfg["passwords"] = pwds
+        guardar_config(cfg)
+    return pwds
 
 def calcular_presupuesto_efectivo():
     cfg = leer_config()
@@ -159,6 +174,7 @@ def obtener_datos_dos_hojas(forzar=False):
                 filas_lunes.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Base": info["base_sug"],
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
@@ -170,6 +186,7 @@ def obtener_datos_dos_hojas(forzar=False):
                 filas_jueves.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Base": info["base_sug"],
                     "Operador": op_j, "Importe": imp_j, "Real": real_j
                 })
     except Exception:
@@ -181,11 +198,13 @@ def obtener_datos_dos_hojas(forzar=False):
             filas_lunes.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
+                "Base": info["base_sug"],
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
             filas_jueves.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
+                "Base": info["base_sug"],
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
 
@@ -417,6 +436,8 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
 # ==========================================
 # 1. INICIO DE SESIÓN
 # ==========================================
+credenciales_actuales = obtener_passwords()
+
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 if "vista_simulada" not in st.session_state:
@@ -430,10 +451,10 @@ if st.session_state.usuario_logueado is None:
     with col2:
         with st.form("form_login"):
             st.subheader("🔐 Iniciar Sesión")
-            usr = st.selectbox("Selecciona tu Usuario", list(USUARIOS_PASSWORD.keys()))
+            usr = st.selectbox("Selecciona tu Usuario", list(credenciales_actuales.keys()))
             pwd = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar", use_container_width=True):
-                if pwd == USUARIOS_PASSWORD.get(usr):
+                if pwd == credenciales_actuales.get(usr):
                     st.session_state.usuario_logueado = usr
                     st.session_state.vista_simulada = None
                     st.rerun()
@@ -510,10 +531,32 @@ with c3:
             st.session_state.vista_simulada = None
             st.rerun()
 
+# --- MÓDULO PARA CAMBIO DE CONTRASEÑA ---
+with st.expander("🔑 Cambiar mi contraseña de acceso"):
+    c_p1, c_p2, c_p3 = st.columns([2, 2, 1.2])
+    with c_p1:
+        nueva_pass = st.text_input("Nueva contraseña (mínimo 4 caracteres):", type="password", key="inp_nueva_pass")
+    with c_p2:
+        conf_pass = st.text_input("Confirma la nueva contraseña:", type="password", key="inp_conf_pass")
+    with c_p3:
+        st.write("")
+        st.write("")
+        if st.button("💾 Actualizar Clave", use_container_width=True):
+            if len(nueva_pass.strip()) < 4:
+                st.error("La contraseña debe contener al menos 4 caracteres (letras o números).")
+            elif nueva_pass != conf_pass:
+                st.error("Las contraseñas no coinciden.")
+            else:
+                pwds = cfg_actual.get("passwords", PASSWORDS_DEFAULT.copy())
+                pwds[usuario_real] = nueva_pass.strip()
+                cfg_actual["passwords"] = pwds
+                guardar_config(cfg_actual)
+                st.success("✅ ¡Tu contraseña ha sido actualizada exitosamente!")
+
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA VERO (DISTRIBUCIÓN SIMPLIFICADA)
+# 3. VISTA VERO (DISTRIBUCIÓN Y GUÍA DE CARGAS)
 # ==========================================
 if es_capturista:
     st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
@@ -528,24 +571,46 @@ if es_capturista:
         
     df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
 
+    # Resumen visual de la distribución por vehículo para Vero
+    with st.expander("📊 Ver tabla de referencia de distribución base por vehículo", expanded=False):
+        df_ref_vero = pd.DataFrame([
+            {
+                "Placa": v["placa"],
+                "Vehículo": v["vehiculo"],
+                "Solicitante / Área": v["solicita"],
+                "Base Sugerida ($)": v["base_sug"]
+            }
+            for v in MAPEO_SOLICITANTES.values()
+        ])
+        st.dataframe(
+            df_ref_vero,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Base Sugerida ($)": st.column_config.NumberColumn(format="$%.2f")
+            }
+        )
+
     st.divider()
     st.subheader(f"📋 Distribución de Carga - Turno {turno_vero.upper()}")
-    st.caption("Selecciona el conductor autorizado e importe para cada vehículo. Al terminar, guarda y descarga tus formatos:")
+    st.caption("Verifica la base de cada unidad, asigna el operador e importe. Guarda y descarga los formatos al concluir:")
 
     with st.form("form_distribucion_vero"):
         nuevos_registros_vero = []
         
-        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+        c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
         c_h1.markdown("**Área / Solicitante**")
         c_h2.markdown("**Vehículo**")
         c_h3.markdown("**Placa**")
-        c_h4.markdown("**Operador Autorizado**")
-        c_h5.markdown("**Importe ($)**")
+        c_h4.markdown("**Base Sugerida**")
+        c_h5.markdown("**Operador Autorizado**")
+        c_h6.markdown("**Importe ($)**")
         st.divider()
 
         for idx, row in df_actual_vero.iterrows():
             r_num = int(row["row"])
             sol = row["Solicitante"]
+            base_val = float(MAPEO_SOLICITANTES[r_num]["base_sug"])
             ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
             
             val_act = limpiar_texto_operador(row["Operador"])
@@ -554,10 +619,11 @@ if es_capturista:
                 
             idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
             
-            c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+            c_a, c_v, c_p, c_b, c_o, c_i = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
             c_a.write(sol)
             c_v.write(row["Vehículo"])
             c_p.code(row["Placa"])
+            c_b.write(f"${base_val:,.2f}")
             
             sel_op = c_o.selectbox(
                 f"Op Vero {r_num}",
@@ -567,9 +633,12 @@ if es_capturista:
                 label_visibility="collapsed"
             )
             
+            # Si el importe actual es 0, se precarga con la base sugerida
+            val_inicial_imp = float(row["Importe"]) if float(row["Importe"]) > 0 else base_val
+            
             inp_imp = c_i.number_input(
                 f"Imp Vero {r_num}",
-                value=float(row["Importe"]),
+                value=val_inicial_imp,
                 step=50.0,
                 min_value=0.0,
                 key=f"vero_imp_{turno_vero}_{r_num}",
@@ -1262,7 +1331,7 @@ else:
 
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil o de Captura")
-            usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
+            usuarios_para_test = [u for u in credenciales_actuales.keys() if u != "LIAN"]
             solicitante_a_testear = st.selectbox("Selecciona al usuario a simular:", usuarios_para_test)
             
             if st.button("👁️ Entrar a Modo Simulación", type="secondary", use_container_width=True):
