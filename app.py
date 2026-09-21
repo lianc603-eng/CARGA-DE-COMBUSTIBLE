@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 import pytz
 import requests
 import json
@@ -63,15 +63,11 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
+# --- USUARIOS ACTIVOS EXCLUSIVOS ---
 USUARIOS_PASSWORD = {
     "LIAN": "admin123",
     "VERO": "distribucion123",
-    "NOEL CHAN": "inspeccion2026",
-    "QUEVEDO": "ambiental2026",
-    "RENAN/HELDER": "urbano2026",
-    "COB CHAVEZ NARCISO DEL JESUS": "notif123",
-    "PEREZ MAZIN CARLOS EDUARDO": "notif123",
-    "DE LA CRUZ PEREZ WILLIAN ARLEY": "notif123",
+    "QUEVEDO": "ambiental2026"
 }
 
 # --- PERSISTENCIA LOCAL ---
@@ -458,6 +454,10 @@ es_capturista = (usuario_efectivo == "VERO")
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 
+# Fecha de Programación por defecto: 1 día después de hoy
+FECHA_HOY = date.today()
+FECHA_PROGRAMACION_DEFECTO = FECHA_HOY + timedelta(days=1)
+
 cfg_actual = leer_config()
 desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
 # Vero y Lian no tienen bloqueo de horario
@@ -520,9 +520,9 @@ if es_capturista:
     
     col_v1, col_v2, col_v3 = st.columns(3)
     with col_v1:
-        f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=date.today(), help="Fecha en que se tramita el oficio.")
+        f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=FECHA_HOY, help="Fecha en que se tramita el oficio.")
     with col_v2:
-        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=date.today(), help="Día en que las unidades cargarán combustible.")
+        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO, help="Día en que las unidades cargarán combustible (programado para mañana).")
     with col_v3:
         turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
         
@@ -624,7 +624,7 @@ if es_capturista:
         )
 
 # ==========================================
-# 4. VISTA SOLICITANTE GENERAL (CHOFERES/ÁREAS)
+# 4. VISTA SOLICITANTE GENERAL (QUEVEDO)
 # ==========================================
 elif not es_admin:
     presupuesto_semanal_total = presupuestos_actuales.get(usuario_efectivo, 0.00)
@@ -737,9 +737,9 @@ else:
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        f_elab = st.date_input("Fecha de Elaboración", value=date.today())
+        f_elab = st.date_input("Fecha de Elaboración", value=FECHA_HOY)
     with col_f2:
-        f_prog = st.date_input("Programación para el día", value=date.today())
+        f_prog = st.date_input("Programación para el día", value=FECHA_PROGRAMACION_DEFECTO)
 
     tab_saldos, tab_lunes, tab_jueves, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
         "📊 Monitoreo y Asignación de Presupuestos",
@@ -1261,7 +1261,7 @@ else:
                 st.rerun()
 
         with st.container(border=True):
-            st.subheader("🧪 Probar Vista Móvil de Solicitante o Captura")
+            st.subheader("🧪 Probar Vista Móvil o de Captura")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
             solicitante_a_testear = st.selectbox("Selecciona al usuario a simular:", usuarios_para_test)
             
