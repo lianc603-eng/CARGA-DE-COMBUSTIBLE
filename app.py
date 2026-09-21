@@ -65,6 +65,7 @@ MAPEO_SOLICITANTES = {
 
 USUARIOS_PASSWORD = {
     "LIAN": "admin123",
+    "VERO": "distribucion123",
     "NOEL CHAN": "inspeccion2026",
     "QUEVEDO": "ambiental2026",
     "RENAN/HELDER": "urbano2026",
@@ -450,14 +451,17 @@ if st.session_state.usuario_logueado is None:
 usuario_real = st.session_state.usuario_logueado
 es_admin_real = (usuario_real == "LIAN")
 usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.session_state.vista_simulada) else usuario_real
+
 es_admin = (usuario_efectivo == "LIAN")
+es_capturista = (usuario_efectivo == "VERO")
 
 ahora_local = datetime.now(ZONA_HORARIA)
 hora_actual = ahora_local.time()
 
 cfg_actual = leer_config()
 desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
-sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not desbloqueo_activo
+# Vero y Lian no tienen bloqueo de horario
+sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not es_capturista and not desbloqueo_activo
 
 presupuestos_actuales = calcular_presupuesto_efectivo()
 
@@ -466,8 +470,12 @@ with c1:
     st.title("⛽ Control de Combustible")
     if es_admin_real and st.session_state.vista_simulada:
         st.warning(f"🧪 **MODO DE PRUEBA ACTIVO**: Simulando vista como **{usuario_efectivo}**")
+    elif es_admin:
+        st.markdown("👑 **ADMINISTRADOR GENERAL**")
+    elif es_capturista:
+        st.markdown("👩‍💼 **DISTRIBUCIÓN Y APOYO OPERATIVO (VERO)**")
     else:
-        st.markdown("👑 **ADMINISTRADOR GENERAL**" if es_admin else f"👤 Solicitante: **{usuario_efectivo}**")
+        st.markdown(f"👤 Solicitante: **{usuario_efectivo}**")
         
     estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado (Límite 3:10 PM)"
     if desbloqueo_activo:
@@ -484,7 +492,7 @@ with c2:
             st.rerun()
     else:
         dia_activo = dia_guardado
-        st.info(f"📅 Solicitud Abierta para: **{dia_activo}**")
+        st.info(f"📅 Solicitud Activa: **{dia_activo}**")
 
 with c3:
     st.write("")
@@ -505,9 +513,120 @@ with c3:
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA SOLICITANTE (LUNES / JUEVES)
+# 3. VISTA VERO (DISTRIBUCIÓN SIMPLIFICADA)
 # ==========================================
-if not es_admin:
+if es_capturista:
+    st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
+    
+    col_v1, col_v2, col_v3 = st.columns(3)
+    with col_v1:
+        f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=date.today(), help="Fecha en que se tramita el oficio.")
+    with col_v2:
+        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=date.today(), help="Día en que las unidades cargarán combustible.")
+    with col_v3:
+        turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
+        
+    df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
+
+    st.divider()
+    st.subheader(f"📋 Distribución de Carga - Turno {turno_vero.upper()}")
+    st.caption("Selecciona el conductor autorizado e importe para cada vehículo. Al terminar, guarda y descarga tus formatos:")
+
+    with st.form("form_distribucion_vero"):
+        nuevos_registros_vero = []
+        
+        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+        c_h1.markdown("**Área / Solicitante**")
+        c_h2.markdown("**Vehículo**")
+        c_h3.markdown("**Placa**")
+        c_h4.markdown("**Operador Autorizado**")
+        c_h5.markdown("**Importe ($)**")
+        st.divider()
+
+        for idx, row in df_actual_vero.iterrows():
+            r_num = int(row["row"])
+            sol = row["Solicitante"]
+            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
+            
+            val_act = limpiar_texto_operador(row["Operador"])
+            if val_act and val_act not in ops_disponibles:
+                ops_disponibles.append(val_act)
+                
+            idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
+            
+            c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+            c_a.write(sol)
+            c_v.write(row["Vehículo"])
+            c_p.code(row["Placa"])
+            
+            sel_op = c_o.selectbox(
+                f"Op Vero {r_num}",
+                options=ops_disponibles,
+                index=idx_op,
+                key=f"vero_op_{turno_vero}_{r_num}",
+                label_visibility="collapsed"
+            )
+            
+            inp_imp = c_i.number_input(
+                f"Imp Vero {r_num}",
+                value=float(row["Importe"]),
+                step=50.0,
+                min_value=0.0,
+                key=f"vero_imp_{turno_vero}_{r_num}",
+                format="%.2f",
+                label_visibility="collapsed"
+            )
+            
+            nuevos_registros_vero.append({
+                "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
+                "Placa": row["Placa"], "Actividad": row["Actividad"],
+                "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
+            })
+            
+        df_vero_edit = pd.DataFrame(nuevos_registros_vero)
+        total_vero = df_vero_edit["Importe"].sum()
+        
+        st.markdown(f"### **Total Programado ({turno_vero}):** `${total_vero:,.2f}`")
+        btn_guardar_vero = st.form_submit_button(f"💾 Guardar y Sincronizar Distribución de {turno_vero}", type="primary", use_container_width=True)
+        
+        if btn_guardar_vero:
+            with st.spinner(f"Guardando cambios en la pestaña '{turno_vero.lower()}'..."):
+                exito = enviar_datos_hoja(df_vero_edit, hoja=turno_vero.lower(), tipo="solicitado", f_elab=f_elab_vero, f_prog=f_prog_vero)
+                if exito:
+                    st.success(f"✅ ¡Cargas del {turno_vero} guardadas exitosamente en Google Sheets!")
+                    st.rerun()
+                else:
+                    st.error("Error al guardar en Google Sheets.")
+
+    # Descarga directa para Vero
+    st.divider()
+    st.markdown("##### 📥 Descargar Oficios del Día")
+    df_solo_cargas_vero = df_vero_edit[df_vero_edit["Importe"] > 0].copy()
+    
+    col_v_dl1, col_v_dl2 = st.columns(2)
+    with col_v_dl1:
+        excel_vero = generar_excel_oficial_formato(df_vero_edit, turno_vero, f_elab_vero, f_prog_vero)
+        st.download_button(
+            label=f"📊 Descargar Formato Excel {turno_vero.upper()} (.xlsx)",
+            data=excel_vero,
+            file_name=f"SOLICITUD_{turno_vero.upper()}_{f_prog_vero.strftime('%d%m%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    with col_v_dl2:
+        pdf_vero = generar_pdf_oficial(df_solo_cargas_vero, turno_vero, f_elab_vero, f_prog_vero)
+        st.download_button(
+            label=f"📄 Descargar Oficio PDF {turno_vero.upper()} (.pdf)",
+            data=pdf_vero,
+            file_name=f"OFICIO_{turno_vero.upper()}_{f_prog_vero.strftime('%d%m%Y')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+
+# ==========================================
+# 4. VISTA SOLICITANTE GENERAL (CHOFERES/ÁREAS)
+# ==========================================
+elif not es_admin:
     presupuesto_semanal_total = presupuestos_actuales.get(usuario_efectivo, 0.00)
     
     sub_l = df_lunes[df_lunes["Solicitante"] == usuario_efectivo]
@@ -611,7 +730,7 @@ if not es_admin:
                         st.error("Error al comunicarse con Google Sheets.")
 
 # ==========================================
-# 4. VISTA ADMINISTRADOR (LIAN)
+# 5. VISTA ADMINISTRADOR (LIAN)
 # ==========================================
 else:
     st.subheader("⚙️ Panel de Consolidación, Edición y Descarga Oficial")
@@ -746,7 +865,7 @@ else:
                 st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
                 st.rerun()
 
-    # 2. CARGA LUNES (CON OPCIÓN DE ELIMINAR CARGA)
+    # 2. CARGA LUNES
     with tab_lunes:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
         st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
@@ -814,7 +933,6 @@ else:
                     else:
                         st.error("Error al guardar en Google Sheets.")
 
-        # Acciones Rápidas: Botón individual para borrar la carga de un vehículo
         with st.expander("🗑️ Quitar Carga Específica del LUNES (Regresar Saldo al Presupuesto)"):
             c_del1, c_del2 = st.columns([3, 1])
             with c_del1:
@@ -856,7 +974,7 @@ else:
                 use_container_width=True
             )
 
-    # 3. CARGA JUEVES (CON OPCIÓN DE ELIMINAR CARGA)
+    # 3. CARGA JUEVES
     with tab_jueves:
         st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Pestaña 'jueves')")
         st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
@@ -924,7 +1042,6 @@ else:
                     else:
                         st.error("Error al guardar en Google Sheets.")
 
-        # Acciones Rápidas: Botón individual para borrar la carga de un vehículo (Corrige el caso de Francisco Alonzo)
         with st.expander("🗑️ Quitar Carga Específica del JUEVES (Regresar Saldo al Presupuesto)"):
             c_delj1, c_delj2 = st.columns([3, 1])
             with c_delj1:
@@ -1017,7 +1134,7 @@ else:
                     st.success("✅ Tu carga fue registrada correctamente.")
                     st.rerun()
 
-    # 5. AUDITORÍA Y COMPROBACIÓN REAL (LUNES Y JUEVES)
+    # 5. AUDITORÍA Y COMPROBACIÓN REAL
     with tab_auditoria:
         st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
         st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
@@ -1144,9 +1261,9 @@ else:
                 st.rerun()
 
         with st.container(border=True):
-            st.subheader("🧪 Probar Vista Móvil de Solicitante")
+            st.subheader("🧪 Probar Vista Móvil de Solicitante o Captura")
             usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
-            solicitante_a_testear = st.selectbox("Selecciona al solicitante a simular:", usuarios_para_test)
+            solicitante_a_testear = st.selectbox("Selecciona al usuario a simular:", usuarios_para_test)
             
             if st.button("👁️ Entrar a Modo Simulación", type="secondary", use_container_width=True):
                 st.session_state.vista_simulada = solicitante_a_testear
