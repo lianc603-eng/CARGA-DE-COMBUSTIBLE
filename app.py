@@ -556,125 +556,143 @@ with st.expander("🔑 Cambiar mi contraseña de acceso"):
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA VERO (DISTRIBUCIÓN Y GUÍA DE CARGAS)
+# 3. VISTA VERO (DISTRIBUCIÓN Y PRESUPUESTOS)
 # ==========================================
 if es_capturista:
-    st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
+    st.markdown("### 👩‍💼 Panel de Distribución — Asignación por Unidad")
     
-    col_v1, col_v2, col_v3 = st.columns(3)
-    with col_v1:
-        f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=FECHA_HOY, help="Fecha en que se tramita el oficio.")
-    with col_v2:
-        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO, help="Día en que las unidades cargarán combustible (programado para mañana).")
-    with col_v3:
-        turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
-        
+    # 1. Fechas y turno obligatorios arriba
+    with st.container(border=True):
+        st.markdown("##### 📌 Paso 1: Configurar Fechas y Turno")
+        col_v1, col_v2, col_v3 = st.columns(3)
+        with col_v1:
+            f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=FECHA_HOY)
+        with col_v2:
+            f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO)
+        with col_v3:
+            turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
+
     df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
 
-    # Resumen visual de la distribución por vehículo para Vero
-    with st.expander("📊 Ver tabla de referencia de distribución base por vehículo", expanded=False):
-        df_ref_vero = pd.DataFrame([
-            {
-                "Placa": v["placa"],
-                "Vehículo": v["vehiculo"],
-                "Solicitante / Área": v["solicita"],
-                "Base Sugerida ($)": v["base_sug"]
-            }
-            for v in MAPEO_SOLICITANTES.values()
-        ])
-        st.dataframe(
-            df_ref_vero,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Base Sugerida ($)": st.column_config.NumberColumn(format="$%.2f")
-            }
-        )
+    # 2. Resumen de presupuestos por área
+    st.markdown(f"##### 📊 Presupuesto Semanal por Área / Solicitante")
+    cols_presup = st.columns(len(PRESUPUESTO_BASE_POR_SOLICITANTE))
+    for i, (sol, pres_base) in enumerate(PRESUPUESTO_BASE_POR_SOLICITANTE.items()):
+        nom_corto = sol.split()[0] if " " in sol else sol
+        if sol == "RENAN/HELDER": nom_corto = "JETTA"
+        if sol == "QUEVEDO": nom_corto = "RAM 701"
+        cols_presup[i].metric(label=nom_corto, value=f"${pres_base:,.2f}")
 
     st.divider()
-    st.subheader(f"📋 Distribución de Carga - Turno {turno_vero.upper()}")
-    st.caption("Verifica la base de cada unidad, asigna el operador e importe. Guarda y descarga los formatos al concluir:")
 
-    with st.form("form_distribucion_vero"):
+    # 3. Formulario de Captura Estructurado
+    st.subheader(f"📋 Asignación de Combustible — Turno {turno_vero.upper()}")
+    st.caption("Verifica el presupuesto semanal de cada unidad, elige al operador autorizado e ingresa el importe:")
+
+    with st.form("form_distribucion_vero_cards"):
         nuevos_registros_vero = []
-        
-        c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
-        c_h1.markdown("**Área / Solicitante**")
-        c_h2.markdown("**Vehículo**")
-        c_h3.markdown("**Placa**")
-        c_h4.markdown("**Base Sugerida**")
-        c_h5.markdown("**Operador Autorizado**")
-        c_h6.markdown("**Importe ($)**")
-        st.divider()
+        total_acumulado_vero = 0.0
 
         for idx, row in df_actual_vero.iterrows():
             r_num = int(row["row"])
             sol = row["Solicitante"]
-            base_val = float(MAPEO_SOLICITANTES[r_num]["base_sug"])
-            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
+            info_veh = MAPEO_SOLICITANTES[r_num]
+            base_sugerida = float(info_veh["base_sug"])
             
+            # Operadores autorizados
+            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
             val_act = limpiar_texto_operador(row["Operador"])
             if val_act and val_act not in ops_disponibles:
                 ops_disponibles.append(val_act)
-                
             idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
             
-            c_a, c_v, c_p, c_b, c_o, c_i = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
-            c_a.write(sol)
-            c_v.write(row["Vehículo"])
-            c_p.code(row["Placa"])
-            c_b.write(f"${base_val:,.2f}")
-            
-            sel_op = c_o.selectbox(
-                f"Op Vero {r_num}",
-                options=ops_disponibles,
-                index=idx_op,
-                key=f"vero_op_{turno_vero}_{r_num}",
-                label_visibility="collapsed"
-            )
-            
-            # Si el importe actual es 0, se precarga con la base sugerida
-            val_inicial_imp = float(row["Importe"]) if float(row["Importe"]) > 0 else base_val
-            
-            inp_imp = c_i.number_input(
-                f"Imp Vero {r_num}",
-                value=val_inicial_imp,
-                step=50.0,
-                min_value=0.0,
-                key=f"vero_imp_{turno_vero}_{r_num}",
-                format="%.2f",
-                label_visibility="collapsed"
-            )
-            
-            nuevos_registros_vero.append({
-                "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
-                "Placa": row["Placa"], "Actividad": row["Actividad"],
-                "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
-            })
-            
-        df_vero_edit = pd.DataFrame(nuevos_registros_vero)
-        total_vero = df_vero_edit["Importe"].sum()
-        
-        st.markdown(f"### **Total Programado ({turno_vero}):** `${total_vero:,.2f}`")
-        btn_guardar_vero = st.form_submit_button(f"💾 Guardar y Sincronizar Distribución de {turno_vero}", type="primary", use_container_width=True)
+            val_inicial_imp = float(row["Importe"]) if float(row["Importe"]) > 0 else base_sugerida
+
+            # Tarjeta individual por vehículo
+            with st.container(border=True):
+                c_head1, c_head2, c_head3 = st.columns([2, 1.5, 1])
+                with c_head1:
+                    st.markdown(f"🚗 **{info_veh['vehiculo']}** &nbsp;|&nbsp; Placa: `{info_veh['placa']}`")
+                    st.caption(f"👤 **Área / Solicitante:** {sol}")
+                with c_head2:
+                    st.markdown(f"💰 **Presupuesto Base:** `${base_sugerida:,.2f}`")
+                    st.caption(f"📋 Semanal Área: `${PRESUPUESTO_BASE_POR_SOLICITANTE.get(sol, 0.0):,.2f}`")
+                with c_head3:
+                    st.badge("OFICIAL", icon="🏛️")
+
+                col_input1, col_input2 = st.columns([2.5, 1.5])
+                with col_input1:
+                    sel_op = st.selectbox(
+                        "Conductor / Operador Asignado:",
+                        options=ops_disponibles,
+                        index=idx_op,
+                        key=f"card_op_{turno_vero}_{r_num}"
+                    )
+                with col_input2:
+                    inp_imp = st.number_input(
+                        f"Importe a Cargar ($):",
+                        value=val_inicial_imp,
+                        step=50.0,
+                        min_value=0.0,
+                        key=f"card_imp_{turno_vero}_{r_num}",
+                        format="%.2f"
+                    )
+
+                nuevos_registros_vero.append({
+                    "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
+                    "Placa": row["Placa"], "Actividad": row["Actividad"],
+                    "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
+                })
+                total_acumulado_vero += inp_imp
+
+        st.divider()
+
+        # Balance general final
+        diff_global = PRESUPUESTO_GLOBAL - total_acumulado_vero
+        m_c1, m_c2, m_c3 = st.columns(3)
+        m_c1.metric("Presupuesto Global Semanal", f"${PRESUPUESTO_GLOBAL:,.2f}")
+        m_c2.metric(f"Total Programado {turno_vero}", f"${total_acumulado_vero:,.2f}")
+        m_c3.metric(
+            "Diferencia vs Global", 
+            f"${diff_global:,.2f}",
+            delta="Dentro de presupuesto" if diff_global >= 0 else "Excedido",
+            delta_color="normal" if diff_global >= 0 else "inverse"
+        )
+
+        if total_acumulado_vero > PRESUPUESTO_GLOBAL:
+            st.error(f"⚠️ El monto programado (${total_acumulado_vero:,.2f}) excede el presupuesto global de${PRESUPUESTO_GLOBAL:,.2f}.")
+
+        btn_guardar_vero = st.form_submit_button(
+            f"💾 Guardar y Sincronizar Distribución de {turno_vero}", 
+            type="primary", 
+            use_container_width=True
+        )
         
         if btn_guardar_vero:
-            with st.spinner(f"Guardando cambios en la pestaña '{turno_vero.lower()}'..."):
-                exito = enviar_datos_hoja(df_vero_edit, hoja=turno_vero.lower(), tipo="solicitado", f_elab=f_elab_vero, f_prog=f_prog_vero)
+            with st.spinner(f"Sincronizando con Google Sheets..."):
+                df_guardar = pd.DataFrame(nuevos_registros_vero)
+                exito = enviar_datos_hoja(
+                    df_guardar, 
+                    hoja=turno_vero.lower(), 
+                    tipo="solicitado", 
+                    f_elab=f_elab_vero, 
+                    f_prog=f_prog_vero
+                )
                 if exito:
-                    st.success(f"✅ ¡Cargas del {turno_vero} guardadas exitosamente en Google Sheets!")
+                    st.success(f"✅ ¡Distribución del {turno_vero} guardada exitosamente!")
                     st.rerun()
                 else:
-                    st.error("Error al guardar en Google Sheets.")
+                    st.error("Error al comunicarse con Google Sheets.")
 
-    # Descarga directa para Vero
+    # 4. Botones de descarga de oficio
     st.divider()
-    st.markdown("##### 📥 Descargar Oficios del Día")
-    df_solo_cargas_vero = df_vero_edit[df_vero_edit["Importe"] > 0].copy()
-    
-    col_v_dl1, col_v_dl2 = st.columns(2)
-    with col_v_dl1:
-        excel_vero = generar_excel_oficial_formato(df_vero_edit, turno_vero, f_elab_vero, f_prog_vero)
+    st.markdown("##### 📥 Descarga de Oficios Oficiales")
+    df_para_oficios = pd.DataFrame(nuevos_registros_vero)
+    df_solo_cargas = df_para_oficios[df_para_oficios["Importe"] > 0].copy()
+
+    col_dl_ex, col_dl_pdf = st.columns(2)
+    with col_dl_ex:
+        excel_vero = generar_excel_oficial_formato(df_para_oficios, turno_vero, f_elab_vero, f_prog_vero)
         st.download_button(
             label=f"📊 Descargar Formato Excel {turno_vero.upper()} (.xlsx)",
             data=excel_vero,
@@ -682,8 +700,8 @@ if es_capturista:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-    with col_v_dl2:
-        pdf_vero = generar_pdf_oficial(df_solo_cargas_vero, turno_vero, f_elab_vero, f_prog_vero)
+    with col_dl_pdf:
+        pdf_vero = generar_pdf_oficial(df_solo_cargas, turno_vero, f_elab_vero, f_prog_vero)
         st.download_button(
             label=f"📄 Descargar Oficio PDF {turno_vero.upper()} (.pdf)",
             data=pdf_vero,
@@ -691,7 +709,6 @@ if es_capturista:
             mime="application/pdf",
             use_container_width=True
         )
-
 # ==========================================
 # 4. VISTA SOLICITANTE GENERAL (QUEVEDO)
 # ==========================================
