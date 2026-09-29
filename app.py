@@ -123,7 +123,6 @@ def calcular_presupuesto_efectivo():
     cesion_lian = cfg.get("cesion_lian", {})
     
     presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
-    
     for solicitante, extra in asig_comodin.items():
         if solicitante in presupuestos:
             presupuestos[solicitante] += float(extra)
@@ -559,9 +558,11 @@ with st.expander("🔑 Cambiar mi contraseña de acceso"):
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA VERO (DISTRIBUCIÓN Y GUÍA DE CARGAS)
+# 3. VISTA VERO (DISTRIBUCIÓN SIMPLIFICADA)
 # ==========================================
 if es_capturista:
+    PRESUPUESTO_TOPE_VERO = 3800.00
+
     st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
     
     col_v1, col_v2, col_v3 = st.columns(3)
@@ -573,45 +574,42 @@ if es_capturista:
         turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
         
     df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
+    dia_efectivo_vero = MAPA_DIA_CARGA.get(turno_vero, turno_vero.upper())
 
     st.divider()
-    dia_efectivo_vero = MAPA_DIA_CARGA.get(turno_vero, turno_vero.upper())
     st.subheader(f"📋 Distribución de Carga — Remesa {turno_vero.upper()} (Carga Efectiva: {dia_efectivo_vero})")
-    st.caption("Verifica el presupuesto asignado, selecciona al operador autorizado (o escribe uno nuevo si no está en la lista) e ingresa el importe:")
+    st.caption("Selecciona el conductor autorizado (o escribe uno nuevo con la opción 'OTRO') e ingresa el importe para cada vehículo:")
 
     with st.form("form_distribucion_vero"):
         nuevos_registros_vero = []
         
-        c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
+        # 5 columnas limpias
+        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.8, 1.4, 1.0, 2.2, 1.2])
         c_h1.markdown("**Área / Solicitante**")
         c_h2.markdown("**Vehículo**")
         c_h3.markdown("**Placa**")
-        c_h4.markdown("**Base Sugerida**")
-        c_h5.markdown("**Operador Asignado**")
-        c_h6.markdown("**Importe ($)**")
+        c_h4.markdown("**Operador Asignado**")
+        c_h5.markdown("**Importe ($)**")
         st.divider()
 
         for idx, row in df_actual_vero.iterrows():
             r_num = int(row["row"])
             sol = row["Solicitante"]
-            base_val = float(MAPEO_SOLICITANTES[r_num]["base_sug"])
             
-            # Lista de operadores autorizados + opción para agregar uno nuevo
+            # Operadores autorizados + opción "OTRO"
             ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
             val_act = limpiar_texto_operador(row["Operador"])
             
-            # Si ya hay un operador guardado que no está en la lista base, lo mostramos
             if val_act and val_act not in ops_disponibles:
                 ops_disponibles.append(val_act)
             ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                 
             idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
             
-            c_a, c_v, c_p, c_b, c_o, c_i = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
+            c_a, c_v, c_p, c_o, c_i = st.columns([1.8, 1.4, 1.0, 2.2, 1.2])
             c_a.write(sol)
             c_v.write(row["Vehículo"])
             c_p.code(row["Placa"])
-            c_b.write(f"${base_val:,.2f}")
             
             sel_op = c_o.selectbox(
                 f"Op Vero {r_num}",
@@ -621,22 +619,22 @@ if es_capturista:
                 label_visibility="collapsed"
             )
             
-            # Campo de texto condicional si eligen "OTRO"
+            # Campo condicional si eligen "OTRO"
             op_final = sel_op
             if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
                 op_extra = st.text_input(
-                    f"Escribe el nombre del nuevo conductor para {row['Vehículo']} ({row['Placa']}):",
+                    f"Escribe el nombre del chofer extraordinario para {row['Vehículo']} ({row['Placa']}):",
                     value="",
                     key=f"extra_op_{turno_vero}_{r_num}",
                     placeholder="NOMBRE Y APELLIDO DEL OPERADOR"
                 )
                 op_final = op_extra.strip().upper()
             
-            val_inicial_imp = float(row["Importe"]) if float(row["Importe"]) > 0 else base_val
+            val_actual_imp = float(row["Importe"])
             
             inp_imp = c_i.number_input(
                 f"Imp Vero {r_num}",
-                value=val_inicial_imp,
+                value=val_actual_imp,
                 step=50.0,
                 min_value=0.0,
                 key=f"vero_imp_{turno_vero}_{r_num}",
@@ -652,9 +650,27 @@ if es_capturista:
             
         df_vero_edit = pd.DataFrame(nuevos_registros_vero)
         total_vero = df_vero_edit["Importe"].sum()
-        
-        st.markdown(f"### **Total Programado ({turno_vero}):** `${total_vero:,.2f}`")
-        btn_guardar_vero = st.form_submit_button(f"💾 Guardar y Sincronizar Distribución de {turno_vero}", type="primary", use_container_width=True)
+        saldo_restante_vero = PRESUPUESTO_TOPE_VERO - total_vero
+
+        st.divider()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Presupuesto Asignado", f"${PRESUPUESTO_TOPE_VERO:,.2f}")
+        m2.metric(f"Total Programado ({turno_vero})", f"${total_vero:,.2f}")
+        m3.metric(
+            "Saldo Disponible",
+            f"${saldo_restante_vero:,.2f}",
+            delta="Dentro de Presupuesto" if saldo_restante_vero >= 0 else "Excedido",
+            delta_color="normal" if saldo_restante_vero >= 0 else "inverse"
+        )
+
+        if total_vero > PRESUPUESTO_TOPE_VERO:
+            st.error(f"⚠️ El total programado (${total_vero:,.2f}) supera el presupuesto asignado de ${PRESUPUESTO_TOPE_VERO:,.2f}.")
+
+        btn_guardar_vero = st.form_submit_button(
+            f"💾 Guardar y Sincronizar Distribución de {turno_vero}", 
+            type="primary", 
+            use_container_width=True
+        )
         
         if btn_guardar_vero:
             with st.spinner(f"Guardando cambios en la pestaña '{turno_vero.lower()}'..."):
@@ -665,7 +681,7 @@ if es_capturista:
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
-    # Descarga directa para Vero con nombre corregido
+    # Descarga directa con nombres corregidos (Martes/Viernes con guiones)
     st.divider()
     st.markdown("##### 📥 Descargar Oficios del Día")
     df_solo_cargas_vero = df_vero_edit[df_vero_edit["Importe"] > 0].copy()
