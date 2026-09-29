@@ -48,27 +48,38 @@ TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
-    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE},
-    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 140.0},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
+    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 150.0},
+    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 500.0},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
 }
 
 # --- USUARIOS ACTIVOS EXCLUSIVOS ---
-USUARIOS_PASSWORD = {
+PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
     "VERO": "distribucion123",
     "QUEVEDO": "ambiental2026"
 }
+
+# MAPEO DE TURNO AL DÍA EFECTIVO DE CARGA
+MAPA_DIA_CARGA = {
+    "Lunes": "MARTES",
+    "Jueves": "VIERNES"
+}
+
+def obtener_nombre_archivo_oficial(prefijo, turno, f_prog, extension):
+    dia_nombre = MAPA_DIA_CARGA.get(turno, turno.upper())
+    fecha_str = f_prog.strftime("%d_%m_%Y")
+    return f"{prefijo}_{dia_nombre}_{fecha_str}.{extension}"
 
 # --- PERSISTENCIA LOCAL ---
 def leer_config():
@@ -82,7 +93,8 @@ def leer_config():
         "desbloqueo_horario": False,
         "asignacion_comodin": {},
         "cesion_lian": {},
-        "dia_activo": "Lunes"
+        "dia_activo": "Lunes",
+        "passwords": PASSWORDS_DEFAULT.copy()
     }
 
 def guardar_config(cfg):
@@ -91,6 +103,19 @@ def guardar_config(cfg):
             json.dump(cfg, f)
     except Exception:
         pass
+
+def obtener_passwords():
+    cfg = leer_config()
+    pwds = cfg.get("passwords", {})
+    actualizado = False
+    for u, p in PASSWORDS_DEFAULT.items():
+        if u not in pwds:
+            pwds[u] = p
+            actualizado = True
+    if actualizado:
+        cfg["passwords"] = pwds
+        guardar_config(cfg)
+    return pwds
 
 def calcular_presupuesto_efectivo():
     cfg = leer_config()
@@ -118,15 +143,6 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
-def validar_operador_para_fila(solicitante, op_texto):
-    if not op_texto or pd.isna(op_texto):
-        return ""
-    s = str(op_texto).strip()
-    if s.lower() in ["none", "null", "nan", ""]:
-        return ""
-    ops_permitidos = OPERADORES_POR_SOLICITANTE.get(solicitante, [])
-    return s if s in ops_permitidos else ""
-
 # --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
@@ -152,24 +168,26 @@ def obtener_datos_dos_hojas(forzar=False):
                 sol = info["solicita"]
                 
                 item_l = dict_l.get(r, {})
-                op_l = validar_operador_para_fila(sol, item_l.get("encargado", ""))
+                op_l = limpiar_texto_operador(item_l.get("encargado", ""))
                 imp_l = float(item_l.get("importe", 0.0)) if item_l.get("importe") else 0.0
                 real_l = float(item_l.get("real", 0.0)) if item_l.get("real") else 0.0
                 
                 filas_lunes.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Base": info.get("base_sug", 0.0),
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
                 item_j = dict_j.get(r, {})
-                op_j = validar_operador_para_fila(sol, item_j.get("encargado", ""))
+                op_j = limpiar_texto_operador(item_j.get("encargado", ""))
                 imp_j = float(item_j.get("importe", 0.0)) if item_j.get("importe") else 0.0
                 real_j = float(item_j.get("real", 0.0)) if item_j.get("real") else 0.0
                 
                 filas_jueves.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
+                    "Base": info.get("base_sug", 0.0),
                     "Operador": op_j, "Importe": imp_j, "Real": real_j
                 })
     except Exception:
@@ -181,11 +199,13 @@ def obtener_datos_dos_hojas(forzar=False):
             filas_lunes.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
+                "Base": info.get("base_sug", 0.0),
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
             filas_jueves.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
+                "Base": info.get("base_sug", 0.0),
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
 
@@ -211,8 +231,7 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
 
     for _, fila in df_a_enviar.iterrows():
         r = int(fila["row"])
-        sol = MAPEO_SOLICITANTES.get(r, {}).get("solicita", "")
-        enc = validar_operador_para_fila(sol, fila["Operador"])
+        enc = limpiar_texto_operador(fila["Operador"])
         imp = fila["Importe"] if tipo == "solicitado" else fila["Real"]
         payload["registros"].append({
             "row": r,
@@ -225,10 +244,9 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
         df_mem = st.session_state[key_state]
         for _, r_env in df_a_enviar.iterrows():
             r = int(r_env["row"])
-            sol = MAPEO_SOLICITANTES.get(r, {}).get("solicita", "")
             mask = df_mem["row"] == r
             if tipo == "solicitado":
-                df_mem.loc[mask, "Operador"] = validar_operador_para_fila(sol, r_env["Operador"])
+                df_mem.loc[mask, "Operador"] = limpiar_texto_operador(r_env["Operador"])
                 df_mem.loc[mask, "Importe"] = r_env["Importe"]
             else:
                 df_mem.loc[mask, "Real"] = r_env["Real"]
@@ -248,6 +266,8 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
 def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
+    
+    dia_encabezado = MAPA_DIA_CARGA.get(dia_nombre, dia_nombre.upper())
     
     ws = wb.active
     ws.title = dia_nombre.lower()
@@ -368,10 +388,12 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
+    dia_encabezado = MAPA_DIA_CARGA.get(dia_nombre, dia_nombre.upper())
+    
     pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 6, 'H. AYUNTAMIENTO DE CAMPECHE', 0, 1, 'C')
     pdf.set_font('Helvetica', 'B', 10)
-    pdf.cell(0, 5, f'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE - OFICIO DE CARGA {dia_nombre.upper()}', 0, 1, 'C')
+    pdf.cell(0, 5, f'DIRECCION DE DESARROLLO URBANO Y MEDIO AMBIENTE - OFICIO DE CARGA {dia_encabezado}', 0, 1, 'C')
     pdf.ln(3)
     
     pdf.set_font('Helvetica', '', 9)
@@ -408,7 +430,7 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
             
         pdf.set_font('Helvetica', 'B', 8)
         tot_row = table.row()
-        tot_row.cell(f'TOTAL AUTORIZADO {dia_nombre.upper()}:', colspan=4, align="RIGHT")
+        tot_row.cell(f'TOTAL AUTORIZADO {dia_encabezado}:', colspan=4, align="RIGHT")
         tot_row.cell(f"${total:,.2f}", align="RIGHT")
         tot_row.cell('', colspan=2)
         
@@ -417,6 +439,8 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
 # ==========================================
 # 1. INICIO DE SESIÓN
 # ==========================================
+credenciales_actuales = obtener_passwords()
+
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 if "vista_simulada" not in st.session_state:
@@ -430,10 +454,10 @@ if st.session_state.usuario_logueado is None:
     with col2:
         with st.form("form_login"):
             st.subheader("🔐 Iniciar Sesión")
-            usr = st.selectbox("Selecciona tu Usuario", list(USUARIOS_PASSWORD.keys()))
+            usr = st.selectbox("Selecciona tu Usuario", list(credenciales_actuales.keys()))
             pwd = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar", use_container_width=True):
-                if pwd == USUARIOS_PASSWORD.get(usr):
+                if pwd == credenciales_actuales.get(usr):
                     st.session_state.usuario_logueado = usr
                     st.session_state.vista_simulada = None
                     st.rerun()
@@ -510,10 +534,32 @@ with c3:
             st.session_state.vista_simulada = None
             st.rerun()
 
+# --- CAMBIO DE CONTRASEÑA ---
+with st.expander("🔑 Cambiar mi contraseña de acceso"):
+    c_p1, c_p2, c_p3 = st.columns([2, 2, 1.2])
+    with c_p1:
+        nueva_pass = st.text_input("Nueva contraseña (mínimo 4 caracteres):", type="password", key="inp_nueva_pass")
+    with c_p2:
+        conf_pass = st.text_input("Confirma la nueva contraseña:", type="password", key="inp_conf_pass")
+    with c_p3:
+        st.write("")
+        st.write("")
+        if st.button("💾 Actualizar Clave", use_container_width=True):
+            if len(nueva_pass.strip()) < 4:
+                st.error("La contraseña debe tener al menos 4 caracteres (letras o números).")
+            elif nueva_pass != conf_pass:
+                st.error("Las contraseñas no coinciden.")
+            else:
+                pwds = cfg_actual.get("passwords", PASSWORDS_DEFAULT.copy())
+                pwds[usuario_real] = nueva_pass.strip()
+                cfg_actual["passwords"] = pwds
+                guardar_config(cfg_actual)
+                st.success("✅ ¡Contraseña actualizada exitosamente!")
+
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA VERO (DISTRIBUCIÓN SIMPLIFICADA)
+# 3. VISTA VERO (DISTRIBUCIÓN Y GUÍA DE CARGAS)
 # ==========================================
 if es_capturista:
     st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
@@ -522,42 +568,50 @@ if es_capturista:
     with col_v1:
         f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=FECHA_HOY, help="Fecha en que se tramita el oficio.")
     with col_v2:
-        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO, help="Día en que las unidades cargarán combustible (programado para mañana).")
+        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO, help="Día en que las unidades cargarán combustible.")
     with col_v3:
         turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
         
     df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
 
     st.divider()
-    st.subheader(f"📋 Distribución de Carga - Turno {turno_vero.upper()}")
-    st.caption("Selecciona el conductor autorizado e importe para cada vehículo. Al terminar, guarda y descarga tus formatos:")
+    dia_efectivo_vero = MAPA_DIA_CARGA.get(turno_vero, turno_vero.upper())
+    st.subheader(f"📋 Distribución de Carga — Remesa {turno_vero.upper()} (Carga Efectiva: {dia_efectivo_vero})")
+    st.caption("Verifica el presupuesto asignado, selecciona al operador autorizado (o escribe uno nuevo si no está en la lista) e ingresa el importe:")
 
     with st.form("form_distribucion_vero"):
         nuevos_registros_vero = []
         
-        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+        c_h1, c_h2, c_h3, c_h4, c_h5, c_h6 = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
         c_h1.markdown("**Área / Solicitante**")
         c_h2.markdown("**Vehículo**")
         c_h3.markdown("**Placa**")
-        c_h4.markdown("**Operador Autorizado**")
-        c_h5.markdown("**Importe ($)**")
+        c_h4.markdown("**Base Sugerida**")
+        c_h5.markdown("**Operador Asignado**")
+        c_h6.markdown("**Importe ($)**")
         st.divider()
 
         for idx, row in df_actual_vero.iterrows():
             r_num = int(row["row"])
             sol = row["Solicitante"]
-            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
+            base_val = float(MAPEO_SOLICITANTES[r_num]["base_sug"])
             
+            # Lista de operadores autorizados + opción para agregar uno nuevo
+            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
             val_act = limpiar_texto_operador(row["Operador"])
+            
+            # Si ya hay un operador guardado que no está en la lista base, lo mostramos
             if val_act and val_act not in ops_disponibles:
                 ops_disponibles.append(val_act)
+            ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                 
             idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
             
-            c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+            c_a, c_v, c_p, c_b, c_o, c_i = st.columns([1.5, 1.2, 0.9, 1.0, 1.8, 1.1])
             c_a.write(sol)
             c_v.write(row["Vehículo"])
             c_p.code(row["Placa"])
+            c_b.write(f"${base_val:,.2f}")
             
             sel_op = c_o.selectbox(
                 f"Op Vero {r_num}",
@@ -567,9 +621,22 @@ if es_capturista:
                 label_visibility="collapsed"
             )
             
+            # Campo de texto condicional si eligen "OTRO"
+            op_final = sel_op
+            if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
+                op_extra = st.text_input(
+                    f"Escribe el nombre del nuevo conductor para {row['Vehículo']} ({row['Placa']}):",
+                    value="",
+                    key=f"extra_op_{turno_vero}_{r_num}",
+                    placeholder="NOMBRE Y APELLIDO DEL OPERADOR"
+                )
+                op_final = op_extra.strip().upper()
+            
+            val_inicial_imp = float(row["Importe"]) if float(row["Importe"]) > 0 else base_val
+            
             inp_imp = c_i.number_input(
                 f"Imp Vero {r_num}",
-                value=float(row["Importe"]),
+                value=val_inicial_imp,
                 step=50.0,
                 min_value=0.0,
                 key=f"vero_imp_{turno_vero}_{r_num}",
@@ -580,7 +647,7 @@ if es_capturista:
             nuevos_registros_vero.append({
                 "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
                 "Placa": row["Placa"], "Actividad": row["Actividad"],
-                "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
+                "Operador": op_final, "Importe": inp_imp, "Real": row["Real"]
             })
             
         df_vero_edit = pd.DataFrame(nuevos_registros_vero)
@@ -598,27 +665,30 @@ if es_capturista:
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
-    # Descarga directa para Vero
+    # Descarga directa para Vero con nombre corregido
     st.divider()
     st.markdown("##### 📥 Descargar Oficios del Día")
     df_solo_cargas_vero = df_vero_edit[df_vero_edit["Importe"] > 0].copy()
+    
+    nombre_excel_vero = obtener_nombre_archivo_oficial("SOLICITUD", turno_vero, f_prog_vero, "xlsx")
+    nombre_pdf_vero = obtener_nombre_archivo_oficial("OFICIO", turno_vero, f_prog_vero, "pdf")
     
     col_v_dl1, col_v_dl2 = st.columns(2)
     with col_v_dl1:
         excel_vero = generar_excel_oficial_formato(df_vero_edit, turno_vero, f_elab_vero, f_prog_vero)
         st.download_button(
-            label=f"📊 Descargar Formato Excel {turno_vero.upper()} (.xlsx)",
+            label=f"📊 Descargar Formato Excel ({nombre_excel_vero})",
             data=excel_vero,
-            file_name=f"SOLICITUD_{turno_vero.upper()}_{f_prog_vero.strftime('%d%m%Y')}.xlsx",
+            file_name=nombre_excel_vero,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
     with col_v_dl2:
         pdf_vero = generar_pdf_oficial(df_solo_cargas_vero, turno_vero, f_elab_vero, f_prog_vero)
         st.download_button(
-            label=f"📄 Descargar Oficio PDF {turno_vero.upper()} (.pdf)",
+            label=f"📄 Descargar Oficio PDF ({nombre_pdf_vero})",
             data=pdf_vero,
-            file_name=f"OFICIO_{turno_vero.upper()}_{f_prog_vero.strftime('%d%m%Y')}.pdf",
+            file_name=nombre_pdf_vero,
             mime="application/pdf",
             use_container_width=True
         )
@@ -668,6 +738,7 @@ elif not es_admin:
                 
                 if val_actual and val_actual not in opciones_operadores:
                     opciones_operadores.append(val_actual)
+                opciones_operadores.append("➕ OTRO (ESCRIBIR NOMBRE)")
                     
                 idx_sel = opciones_operadores.index(val_actual) if val_actual in opciones_operadores else 0
                 
@@ -679,6 +750,15 @@ elif not es_admin:
                         key=f"op_{dia_activo}_{row['row']}",
                         disabled=sistema_bloqueado
                     )
+                    
+                op_final_sol = val_encargado
+                if val_encargado == "➕ OTRO (ESCRIBIR NOMBRE)":
+                    op_ext_sol = st.text_input(
+                        f"Nombre del conductor extraordinario:",
+                        key=f"ext_op_sol_{row['row']}",
+                        placeholder="NOMBRE COMPLETO"
+                    )
+                    op_final_sol = op_ext_sol.strip().upper()
                     
                 with c_imp:
                     val_importe = st.number_input(
@@ -697,7 +777,7 @@ elif not es_admin:
                     "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"],
                     "Actividad": row["Actividad"],
-                    "Operador": val_encargado,
+                    "Operador": op_final_sol,
                     "Importe": val_importe,
                     "Real": row["Real"]
                 })
@@ -889,6 +969,7 @@ else:
                 val_act = limpiar_texto_operador(row["Operador"])
                 if val_act and val_act not in ops_disponibles:
                     ops_disponibles.append(val_act)
+                ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                     
                 idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
                 
@@ -905,6 +986,15 @@ else:
                     label_visibility="collapsed"
                 )
                 
+                op_final_l = sel_op
+                if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
+                    op_ext_l = st.text_input(
+                        f"Nuevo operador {row['Vehículo']}:",
+                        key=f"adm_ext_op_l_{r_num}",
+                        placeholder="NOMBRE COMPLETO"
+                    )
+                    op_final_l = op_ext_l.strip().upper()
+                
                 inp_imp = c_i.number_input(
                     f"Imp Lunes {r_num}",
                     value=float(row["Importe"]),
@@ -918,7 +1008,7 @@ else:
                 nuevos_lunes.append({
                     "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"], "Actividad": row["Actividad"],
-                    "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
+                    "Operador": op_final_l, "Importe": inp_imp, "Real": row["Real"]
                 })
                 
             df_lunes_edit = pd.DataFrame(nuevos_lunes)
@@ -954,22 +1044,25 @@ else:
         st.markdown("---")
         df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe"] > 0].copy()
         
+        nombre_excel_l = obtener_nombre_archivo_oficial("SOLICITUD", "Lunes", f_prog, "xlsx")
+        nombre_pdf_l = obtener_nombre_archivo_oficial("OFICIO", "Lunes", f_prog, "pdf")
+        
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
             excel_lunes = generar_excel_oficial_formato(df_lunes_edit, "Lunes", f_elab, f_prog)
             st.download_button(
-                label="📥 Descargar Formato Excel LUNES (.xlsx)",
+                label=f"📥 Descargar Formato Excel ({nombre_excel_l})",
                 data=excel_lunes,
-                file_name=f"SOLICITUD_LUNES_{f_prog.strftime('%d%m%Y')}.xlsx",
+                file_name=nombre_excel_l,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
         with col_dl2:
             pdf_lunes = generar_pdf_oficial(df_solo_lunes, "Lunes", f_elab, f_prog)
             st.download_button(
-                label="📄 Descargar Oficio PDF LUNES",
+                label=f"📄 Descargar Oficio PDF ({nombre_pdf_l})",
                 data=pdf_lunes,
-                file_name=f"OFICIO_LUNES_{f_prog.strftime('%d%m%Y')}.pdf",
+                file_name=nombre_pdf_l,
                 mime="application/pdf",
                 use_container_width=True
             )
@@ -998,6 +1091,7 @@ else:
                 val_act = limpiar_texto_operador(row["Operador"])
                 if val_act and val_act not in ops_disponibles:
                     ops_disponibles.append(val_act)
+                ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                     
                 idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
                 
@@ -1014,6 +1108,15 @@ else:
                     label_visibility="collapsed"
                 )
                 
+                op_final_j = sel_op
+                if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
+                    op_ext_j = st.text_input(
+                        f"Nuevo operador {row['Vehículo']}:",
+                        key=f"adm_ext_op_j_{r_num}",
+                        placeholder="NOMBRE COMPLETO"
+                    )
+                    op_final_j = op_ext_j.strip().upper()
+                
                 inp_imp = c_i.number_input(
                     f"Imp Jueves {r_num}",
                     value=float(row["Importe"]),
@@ -1027,7 +1130,7 @@ else:
                 nuevos_jueves.append({
                     "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
                     "Placa": row["Placa"], "Actividad": row["Actividad"],
-                    "Operador": sel_op, "Importe": inp_imp, "Real": row["Real"]
+                    "Operador": op_final_j, "Importe": inp_imp, "Real": row["Real"]
                 })
                 
             df_jueves_edit = pd.DataFrame(nuevos_jueves)
@@ -1063,22 +1166,25 @@ else:
         st.markdown("---")
         df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe"] > 0].copy()
         
+        nombre_excel_j = obtener_nombre_archivo_oficial("SOLICITUD", "Jueves", f_prog, "xlsx")
+        nombre_pdf_j = obtener_nombre_archivo_oficial("OFICIO", "Jueves", f_prog, "pdf")
+        
         col_dj1, col_dj2 = st.columns(2)
         with col_dj1:
             excel_jueves = generar_excel_oficial_formato(df_jueves_edit, "Jueves", f_elab, f_prog)
             st.download_button(
-                label="📥 Descargar Formato Excel JUEVES (.xlsx)",
+                label=f"📥 Descargar Formato Excel ({nombre_excel_j})",
                 data=excel_jueves,
-                file_name=f"SOLICITUD_JUEVES_{f_prog.strftime('%d%m%Y')}.xlsx",
+                file_name=nombre_excel_j,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
         with col_dj2:
             pdf_jueves = generar_pdf_oficial(df_solo_jueves, "Jueves", f_elab, f_prog)
             st.download_button(
-                label="📄 Descargar Oficio PDF JUEVES",
+                label=f"📄 Descargar Oficio PDF ({nombre_pdf_j})",
                 data=pdf_jueves,
-                file_name=f"OFICIO_JUEVES_{f_prog.strftime('%d%m%Y')}.pdf",
+                file_name=nombre_pdf_j,
                 mime="application/pdf",
                 use_container_width=True
             )
@@ -1262,7 +1368,7 @@ else:
 
         with st.container(border=True):
             st.subheader("🧪 Probar Vista Móvil o de Captura")
-            usuarios_para_test = [u for u in USUARIOS_PASSWORD.keys() if u != "LIAN"]
+            usuarios_para_test = [u for u in credenciales_actuales.keys() if u != "LIAN"]
             solicitante_a_testear = st.selectbox("Selecciona al usuario a simular:", usuarios_para_test)
             
             if st.button("👁️ Entrar a Modo Simulación", type="secondary", use_container_width=True):
