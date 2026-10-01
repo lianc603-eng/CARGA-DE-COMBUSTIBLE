@@ -66,8 +66,8 @@ MAPEO_SOLICITANTES = {
 # --- USUARIOS ACTIVOS EXCLUSIVOS ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
-    "VERO": "distribucion123",
-    "QUEVEDO": "ambiental2026"
+    "VERO": "admin123",
+    "QUEVEDO": "admin123"
 }
 
 # MAPEO DE TURNO AL DÍA EFECTIVO DE CARGA
