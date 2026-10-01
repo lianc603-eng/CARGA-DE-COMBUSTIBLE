@@ -66,7 +66,7 @@ MAPEO_SOLICITANTES = {
 # --- USUARIOS ACTIVOS EXCLUSIVOS ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
-    "VERO": "admin123",
+    "VERO": "dis123",
     "QUEVEDO": "admin123"
 }
 
