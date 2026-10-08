@@ -65,7 +65,7 @@ MAPEO_SOLICITANTES = {
 
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
-    "VERO": "distribucion123",
+    "VERO": "dis123",
     "QUEVEDO": "ambiental2026"
 }
 
