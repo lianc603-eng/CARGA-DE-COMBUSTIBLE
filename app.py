@@ -66,7 +66,7 @@ MAPEO_SOLICITANTES = {
 # --- USUARIOS ACTIVOS EXCLUSIVOS ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
-    "VERO": "dis123",
+    "VERO": "distribucion123",
     "QUEVEDO": "ambiental2026"
 }
 
@@ -92,7 +92,7 @@ def leer_config():
     return {
         "desbloqueo_horario": False,
         "asignacion_comodin": {},
-        "cesion_lian": {},
+        "transferencias_libres": [],
         "dia_activo": "Lunes",
         "passwords": PASSWORDS_DEFAULT.copy()
     }
@@ -120,20 +120,24 @@ def obtener_passwords():
 def calcular_presupuesto_efectivo():
     cfg = leer_config()
     asig_comodin = cfg.get("asignacion_comodin", {})
-    cesion_lian = cfg.get("cesion_lian", {})
+    transferencias = cfg.get("transferencias_libres", [])
     
     presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
+    
+    # 1. Aplicar comodín
     for solicitante, extra in asig_comodin.items():
         if solicitante in presupuestos:
             presupuestos[solicitante] += float(extra)
             
-    total_cedido_lian = 0.0
-    for solicitante, monto in cesion_lian.items():
-        if solicitante in presupuestos and solicitante != "LIAN":
-            presupuestos[solicitante] += float(monto)
-            total_cedido_lian += float(monto)
+    # 2. Aplicar transferencias entre solicitantes
+    for t in transferencias:
+        de_quien = t.get("origen")
+        a_quien = t.get("destino")
+        monto = float(t.get("monto", 0.0))
+        if de_quien in presupuestos and a_quien in presupuestos:
+            presupuestos[de_quien] = max(0.0, presupuestos[de_quien] - monto)
+            presupuestos[a_quien] += monto
             
-    presupuestos["LIAN"] = max(0.0, PRESUPUESTO_BASE_POR_SOLICITANTE["LIAN"] - total_cedido_lian)
     return presupuestos
 
 def limpiar_texto_operador(val):
@@ -895,7 +899,7 @@ else:
         "🛠️ Modo Pruebas y Cierre de Viernes"
     ])
 
-    # 1. MONITOREO Y TRANSFERENCIA DE PRESUPUESTOS
+    # 1. MONITOREO Y TRANSFERENCIA DE PRESUPUESTOS (TRANSFERENCIA LIBRE ENTRE OPERADORES)
     with tab_saldos:
         st.markdown("##### 💵 Balance Semanal de Presupuestos en Tiempo Real")
         
@@ -903,10 +907,6 @@ else:
         tot_jueves_sol = df_jueves["Importe"].sum()
         tot_global_semana = tot_lunes_sol + tot_jueves_sol
         saldo_global_semana = PRESUPUESTO_GLOBAL - tot_global_semana
-        
-        asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
-        total_comodin_usado = sum(asig_comodin_dict.values())
-        comodin_disponible = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_usado)
         
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Presupuesto Semanal Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
@@ -966,17 +966,21 @@ else:
         )
 
         st.divider()
-        st.markdown("##### 🔀 Asignar Comodín ($200) y Ceder Presupuesto de Francisco Alonzo / LIAN ($150)")
-        col_trans1, col_trans2 = st.columns(2)
+        st.markdown("##### 🔀 Transferir Presupuesto entre Solicitantes y Asignar Comodín")
+        col_t1, col_t2 = st.columns(2)
         
-        with col_trans1:
+        with col_t1:
             with st.container(border=True):
-                st.markdown(f"🎁 **Bolsa Comodín (Libre: ${comodin_disponible:,.2f})**")
-                areas_comodin = [u for u in PRESUPUESTO_BASE_POR_SOLICITANTE.keys() if u != "LIAN"]
-                destinatario_comodin = st.selectbox("Asignar Comodín a:", areas_comodin, key="sel_comodin")
+                st.markdown("🎁 **Bolsa Comodín**")
+                asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
+                total_comodin_usado = sum(asig_comodin_dict.values())
+                comodin_disponible = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_usado)
+                st.caption(f"Disponible en bolsa: **${comodin_disponible:,.2f}**")
+                
+                destinatario_comodin = st.selectbox("Asignar Comodín a:", list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys()), key="sel_comodin")
                 monto_comodin_add = st.number_input("Monto Extra ($)", min_value=0.0, max_value=float(comodin_disponible), step=50.0, value=0.0, key="inp_comodin")
                 
-                if st.button("➕ Asignar Extra de Comodín", use_container_width=True):
+                if st.button("➕ Asignar de Comodín", use_container_width=True):
                     if monto_comodin_add > 0:
                         asig_act = cfg_actual.get("asignacion_comodin", {})
                         asig_act[destinatario_comodin] = asig_act.get(destinatario_comodin, 0.0) + monto_comodin_add
@@ -985,29 +989,42 @@ else:
                         st.toast(f"Se asignaron ${monto_comodin_add:,.2f} a {destinatario_comodin}", icon="🎁")
                         st.rerun()
 
-        with col_trans2:
+        with col_t2:
             with st.container(border=True):
-                presupuesto_lian_actual = presupuestos_actuales["LIAN"]
-                st.markdown(f"🤝 **Ceder Presupuesto Francisco Alonzo / LIAN (Disponible: ${presupuesto_lian_actual:,.2f})**")
-                areas_ceder = [u for u in PRESUPUESTO_BASE_POR_SOLICITANTE.keys() if u != "LIAN"]
-                destinatario_ceder = st.selectbox("Ceder a:", areas_ceder, key="sel_ceder")
-                monto_ceder = st.number_input("Monto a Ceder ($)", min_value=0.0, max_value=float(presupuesto_lian_actual), step=50.0, value=0.0, key="inp_ceder")
+                st.markdown("🤝 **Transferencia Directa entre Áreas**")
+                lista_solicitantes = list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys())
                 
-                if st.button("Transferir Presupuesto", use_container_width=True):
-                    if monto_ceder > 0:
-                        ces_act = cfg_actual.get("cesion_lian", {})
-                        ces_act[destinatario_ceder] = ces_act.get(destinatario_ceder, 0.0) + monto_ceder
-                        cfg_actual["cesion_lian"] = ces_act
+                c_origen, c_destino = st.columns(2)
+                with c_origen:
+                    sol_origen = st.selectbox("Ceder de (Origen):", lista_solicitantes, key="sel_origen_trans")
+                with c_destino:
+                    destinatarios_posibles = [s for s in lista_solicitantes if s != sol_origen]
+                    sol_destino = st.selectbox("Transferir a (Destino):", destinatarios_posibles, key="sel_destino_trans")
+                
+                saldo_libre_origen = float(presupuestos_actuales.get(sol_origen, 0.0))
+                st.caption(f"Presupuesto actual disponible en {sol_origen}: **${saldo_libre_origen:,.2f}**")
+                
+                monto_transferir = st.number_input("Monto a Transferir ($)", min_value=0.0, max_value=saldo_libre_origen, step=50.0, value=0.0, key="inp_monto_trans")
+                
+                if st.button("🔄 Ejecutar Transferencia", use_container_width=True):
+                    if monto_transferir > 0:
+                        trans_list = cfg_actual.get("transferencias_libres", [])
+                        trans_list.append({
+                            "origen": sol_origen,
+                            "destino": sol_destino,
+                            "monto": monto_transferir
+                        })
+                        cfg_actual["transferencias_libres"] = trans_list
                         guardar_config(cfg_actual)
-                        st.toast(f"Has transferido ${monto_ceder:,.2f} a {destinatario_ceder}", icon="🤝")
+                        st.toast(f"Transferidos ${monto_transferir:,.2f} de {sol_origen} a {sol_destino}", icon="🤝")
                         st.rerun()
 
-        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("cesion_lian"):
-            if st.button("🔄 Restablecer Transferencias a Valores Originales", type="secondary", use_container_width=True):
+        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("transferencias_libres"):
+            if st.button("🔄 Restablecer Todas las Transferencias a Valores Base", type="secondary", use_container_width=True):
                 cfg_actual["asignacion_comodin"] = {}
-                cfg_actual["cesion_lian"] = {}
+                cfg_actual["transferencias_libres"] = []
                 guardar_config(cfg_actual)
-                st.toast("Transferencias restablecidas a presupuestos base.", icon="🔄")
+                st.toast("Presupuestos restablecidos a los originales.", icon="🔄")
                 st.rerun()
 
     # 2. CARGA LUNES
