@@ -63,12 +63,14 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
 }
 
+# --- USUARIOS ACTIVOS EXCLUSIVOS ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
     "VERO": "dis123",
     "QUEVEDO": "ambiental2026"
 }
 
+# MAPEO DE TURNO AL DÍA EFECTIVO DE CARGA
 MAPA_DIA_CARGA = {
     "Lunes": "MARTES",
     "Jueves": "VIERNES"
@@ -570,8 +572,23 @@ if es_capturista:
     df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
     dia_efectivo_vero = MAPA_DIA_CARGA.get(turno_vero, turno_vero.upper())
 
+    # --- CÁLCULO FINANCIERO ACUMULADO REAL ---
+    gasto_lunes_acumulado = df_lunes["Importe"].sum()
+    gasto_jueves_acumulado = df_jueves["Importe"].sum()
+
+    if turno_vero == "Lunes":
+        presupuesto_disponible_turno = PRESUPUESTO_TOPE_VERO
+        gasto_otro_turno = 0.0
+    else:
+        presupuesto_disponible_turno = max(0.0, PRESUPUESTO_TOPE_VERO - gasto_lunes_acumulado)
+        gasto_otro_turno = gasto_lunes_acumulado
+
     st.divider()
     st.subheader(f"📋 Distribución de Carga — Remesa {turno_vero.upper()} (Carga Efectiva: {dia_efectivo_vero})")
+    
+    if turno_vero == "Jueves":
+        st.info(f"💡 El Lunes se solicitaron **${gasto_lunes_acumulado:,.2f}**. El saldo libre restante para este Jueves es de **${presupuesto_disponible_turno:,.2f}**.")
+
     st.caption("Selecciona el conductor autorizado (o escribe uno nuevo con la opción 'OTRO') e ingresa el importe para cada vehículo:")
 
     with st.form("form_distribucion_vero"):
@@ -640,18 +657,25 @@ if es_capturista:
             })
             
         df_vero_edit = pd.DataFrame(nuevos_registros_vero)
-        total_vero = df_vero_edit["Importe"].sum()
-        saldo_restante_vero = PRESUPUESTO_TOPE_VERO - total_vero
+        total_hoy = df_vero_edit["Importe"].sum()
+        
+        if turno_vero == "Lunes":
+            total_semana_proyectado = total_hoy + gasto_jueves_acumulado
+        else:
+            total_semana_proyectado = total_hoy + gasto_lunes_acumulado
+            
+        saldo_restante_real = PRESUPUESTO_TOPE_VERO - total_semana_proyectado
 
         st.divider()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Presupuesto Asignado", f"${PRESUPUESTO_TOPE_VERO:,.2f}")
-        m2.metric(f"Total Programado ({turno_vero})", f"${total_vero:,.2f}")
-        m3.metric(
-            "Saldo Disponible",
-            f"${saldo_restante_vero:,.2f}",
-            delta="Dentro de Presupuesto" if saldo_restante_vero >= 0 else "Excedido",
-            delta_color="normal" if saldo_restante_vero >= 0 else "inverse"
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Presupuesto Semanal Global", f"${PRESUPUESTO_TOPE_VERO:,.2f}")
+        m2.metric(f"Gasto Previo Lunes", f"${gasto_otro_turno:,.2f}")
+        m3.metric(f"Capturado {turno_vero}", f"${total_hoy:,.2f}")
+        m4.metric(
+            "Saldo Libre Real Restante",
+            f"${saldo_restante_real:,.2f}",
+            delta="Dentro de Presupuesto" if saldo_restante_real >= 0 else "Excedido",
+            delta_color="normal" if saldo_restante_real >= 0 else "inverse"
         )
 
         btn_guardar_vero = st.form_submit_button(
@@ -669,7 +693,7 @@ if es_capturista:
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
-    # --- VERIFICACIÓN DE EXCEDENTES POR VEHÍCULO / ÁREA ---
+    # --- VERIFICACIÓN DE EXCEDENTES POR ÁREA ---
     df_otro_turno = df_jueves if turno_vero == "Lunes" else df_lunes
     bloqueo_por_excedente = False
     detalles_excedentes = []
@@ -686,11 +710,12 @@ if es_capturista:
             bloqueo_por_excedente = True
             diff = gasto_total_semanal - pres_max
             placas_afectadas = ", ".join(sub_actual["Placa"].tolist())
-            detalles_excedentes.append(f"• **{sol_nom}** (Placas: `{placas_afectadas}`): programado **${gasto_total_semanal:,.2f}** vs autorizado **${pres_max:,.2f}** (Excedido por **${diff:,.2f}**).")
+            detalles_excedentes.append(f"• **{sol_nom}** (Placas: `{placas_afectadas}`): acumulado **${gasto_total_semanal:,.2f}** vs autorizado **${pres_max:,.2f}** (Excedido por **${diff:,.2f}**).")
 
-    if total_vero > PRESUPUESTO_TOPE_VERO:
+    if total_semana_proyectado > PRESUPUESTO_TOPE_VERO:
         bloqueo_por_excedente = True
-        detalles_excedentes.append(f"• **Presupuesto Global Semanal**: Total de ${total_vero:,.2f} excede el tope de ${PRESUPUESTO_TOPE_VERO:,.2f}.")
+        diff_global = total_semana_proyectado - PRESUPUESTO_TOPE_VERO
+        detalles_excedentes.append(f"• **Presupuesto Global Semanal**: El acumulado de la semana (${total_semana_proyectado:,.2f}) excede el tope de ${PRESUPUESTO_TOPE_VERO:,.2f} por **${diff_global:,.2f}**.")
 
     # --- DESCARGA DE OFICIOS (CON BLOQUEO AUTOMÁTICO) ---
     st.divider()
