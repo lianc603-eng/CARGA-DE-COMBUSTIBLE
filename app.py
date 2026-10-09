@@ -63,14 +63,12 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
 }
 
-# --- USUARIOS ACTIVOS EXCLUSIVOS ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123",
     "VERO": "distribucion123",
     "QUEVEDO": "ambiental2026"
 }
 
-# MAPEO DE TURNO AL DÍA EFECTIVO DE CARGA
 MAPA_DIA_CARGA = {
     "Lunes": "MARTES",
     "Jueves": "VIERNES"
@@ -81,23 +79,30 @@ def obtener_nombre_archivo_oficial(prefijo, turno, f_prog, extension):
     fecha_str = f_prog.strftime("%d_%m_%Y")
     return f"{prefijo}_{dia_nombre}_{fecha_str}.{extension}"
 
-# --- PERSISTENCIA LOCAL ---
+# --- PERSISTENCIA LOCAL Y EN MEMORIA ---
 def leer_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    if "config_memoria" in st.session_state:
+        return st.session_state.config_memoria
+
+    cfg_defecto = {
         "desbloqueo_horario": False,
         "asignacion_comodin": {},
         "transferencias_libres": [],
         "dia_activo": "Lunes",
         "passwords": PASSWORDS_DEFAULT.copy()
     }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                c = json.load(f)
+                cfg_defecto.update(c)
+        except Exception:
+            pass
+    st.session_state.config_memoria = cfg_defecto
+    return cfg_defecto
 
 def guardar_config(cfg):
+    st.session_state.config_memoria = cfg
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(cfg, f)
@@ -121,15 +126,22 @@ def calcular_presupuesto_efectivo():
     cfg = leer_config()
     asig_comodin = cfg.get("asignacion_comodin", {})
     transferencias = cfg.get("transferencias_libres", [])
+    cesion_vieja = cfg.get("cesion_lian", {})
     
     presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
     
-    # 1. Aplicar comodín
+    # 1. Asignar Comodín
     for solicitante, extra in asig_comodin.items():
         if solicitante in presupuestos:
             presupuestos[solicitante] += float(extra)
             
-    # 2. Aplicar transferencias entre solicitantes
+    # 2. Cesiones de LIAN (compatibilidad)
+    for dest, monto in cesion_vieja.items():
+        if dest in presupuestos and dest != "LIAN":
+            presupuestos[dest] += float(monto)
+            presupuestos["LIAN"] = max(0.0, presupuestos["LIAN"] - float(monto))
+            
+    # 3. Transferencias libres entre solicitantes
     for t in transferencias:
         de_quien = t.get("origen")
         a_quien = t.get("destino")
@@ -178,7 +190,6 @@ def obtener_datos_dos_hojas(forzar=False):
                 filas_lunes.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
-                    "Base": info.get("base_sug", 0.0),
                     "Operador": op_l, "Importe": imp_l, "Real": real_l
                 })
                 
@@ -190,7 +201,6 @@ def obtener_datos_dos_hojas(forzar=False):
                 filas_jueves.append({
                     "row": r, "Solicitante": sol, "Vehículo": info["vehiculo"],
                     "Placa": info["placa"], "Actividad": info["actividad"],
-                    "Base": info.get("base_sug", 0.0),
                     "Operador": op_j, "Importe": imp_j, "Real": real_j
                 })
     except Exception:
@@ -202,13 +212,11 @@ def obtener_datos_dos_hojas(forzar=False):
             filas_lunes.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
-                "Base": info.get("base_sug", 0.0),
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
             filas_jueves.append({
                 "row": r, "Solicitante": info["solicita"], "Vehículo": info["vehiculo"],
                 "Placa": info["placa"], "Actividad": info["actividad"],
-                "Base": info.get("base_sug", 0.0),
                 "Operador": "", "Importe": 0.0, "Real": 0.0
             })
 
@@ -809,13 +817,13 @@ elif not es_admin:
                     opciones_operadores.append(val_actual)
                 opciones_operadores.append("➕ OTRO (ESCRIBIR NOMBRE)")
                     
-                idx_sel = opciones_operadores.index(val_actual) if val_actual in opciones_operadores else 0
+                idx_op = opciones_operadores.index(val_actual) if val_actual in opciones_operadores else 0
                 
                 with c_op:
                     val_encargado = st.selectbox(
                         "Operador / Conductor",
                         options=opciones_operadores,
-                        index=idx_sel,
+                        index=idx_op,
                         key=f"op_{dia_activo}_{row['row']}",
                         disabled=sistema_bloqueado
                     )
@@ -1019,10 +1027,11 @@ else:
                         st.toast(f"Transferidos ${monto_transferir:,.2f} de {sol_origen} a {sol_destino}", icon="🤝")
                         st.rerun()
 
-        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("transferencias_libres"):
+        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("transferencias_libres") or cfg_actual.get("cesion_lian"):
             if st.button("🔄 Restablecer Todas las Transferencias a Valores Base", type="secondary", use_container_width=True):
                 cfg_actual["asignacion_comodin"] = {}
                 cfg_actual["transferencias_libres"] = []
+                cfg_actual["cesion_lian"] = {}
                 guardar_config(cfg_actual)
                 st.toast("Presupuestos restablecidos a los originales.", icon="🔄")
                 st.rerun()
@@ -1322,56 +1331,61 @@ else:
                     st.success("✅ Tu carga fue registrada correctamente.")
                     st.rerun()
 
-    # 5. AUDITORÍA Y COMPROBACIÓN REAL
+    # 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
     with tab_auditoria:
         st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
         st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
         
         c_aud_l, c_aud_j = st.columns(2)
         
+        # Lista estricta de columnas visibles: se excluye 'Base', 'row', etc.
+        cols_visibles_aud = ["Vehículo", "Placa", "Importe", "Real"]
+        
         with c_aud_l:
             st.markdown("📋 **Comprobación Real LUNES**")
             df_aud_l_edit = st.data_editor(
-                df_lunes.copy(),
+                df_lunes[cols_visibles_aud].copy(),
                 use_container_width=True,
                 height=450,
-                disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
+                disabled=["Vehículo", "Placa", "Importe"],
                 column_config={
                     "Vehículo": st.column_config.TextColumn("Vehículo"),
                     "Placa": st.column_config.TextColumn("Placa"),
                     "Importe": st.column_config.NumberColumn("Sol. Lunes ($)", format="$%.2f"),
                     "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                    "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_lunes_final_v7"
+                key="aud_editor_lunes_clean_v9"
             )
             
             if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
-                exito = enviar_datos_hoja(df_aud_l_edit, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                df_l_guardar = df_lunes.copy()
+                df_l_guardar["Real"] = df_aud_l_edit["Real"]
+                exito = enviar_datos_hoja(df_l_guardar, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
                 if exito:
                     st.success("✅ Real del Lunes guardado.")
 
         with c_aud_j:
             st.markdown("📋 **Comprobación Real JUEVES**")
             df_aud_j_edit = st.data_editor(
-                df_jueves.copy(),
+                df_jueves[cols_visibles_aud].copy(),
                 use_container_width=True,
                 height=450,
-                disabled=["row", "Solicitante", "Vehículo", "Placa", "Actividad", "Operador", "Importe"],
+                disabled=["Vehículo", "Placa", "Importe"],
                 column_config={
                     "Vehículo": st.column_config.TextColumn("Vehículo"),
                     "Placa": st.column_config.TextColumn("Placa"),
                     "Importe": st.column_config.NumberColumn("Sol. Jueves ($)", format="$%.2f"),
                     "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                    "row": None, "Solicitante": None, "Actividad": None, "Operador": None
                 },
                 hide_index=True,
-                key="aud_editor_jueves_final_v7"
+                key="aud_editor_jueves_clean_v9"
             )
             
             if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
-                exito = enviar_datos_hoja(df_aud_j_edit, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                df_j_guardar = df_jueves.copy()
+                df_j_guardar["Real"] = df_aud_j_edit["Real"]
+                exito = enviar_datos_hoja(df_j_guardar, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
                 if exito:
                     st.success("✅ Real del Jueves guardado.")
 
@@ -1392,8 +1406,8 @@ else:
             with st.spinner("Archivando en pestaña 'historico'..."):
                 detalles_txt_lista = []
                 for r_num in sorted(MAPEO_SOLICITANTES.keys()):
-                    r_l = df_aud_l_edit[df_aud_l_edit["row"] == r_num].iloc[0]
-                    r_j = df_aud_j_edit[df_aud_j_edit["row"] == r_num].iloc[0]
+                    r_l = df_lunes[df_lunes["row"] == r_num].iloc[0]
+                    r_j = df_jueves[df_jueves["row"] == r_num].iloc[0]
                     tot_u = r_l["Real"] + r_j["Real"]
                     if tot_u > 0:
                         detalles_txt_lista.append(f"{r_l['Vehículo']} - ${tot_u:,.2f}")
@@ -1411,7 +1425,7 @@ else:
                     "detalle_unidades": detalles_txt
                 }
                 
-                exito = enviar_datos_hoja(df_aud_j_edit, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
+                exito = enviar_datos_hoja(df_jueves, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
                 if exito:
                     st.success(f"✅ ¡Folio **{folio_generado}** archivado en 'historico'!")
                 else:
@@ -1444,8 +1458,11 @@ else:
                 enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
                 
                 cfg_actual["dia_activo"] = "Lunes"
+                cfg_actual["asignacion_comodin"] = {}
+                cfg_actual["transferencias_libres"] = []
+                cfg_actual["cesion_lian"] = {}
                 guardar_config(cfg_actual)
-                st.success("✅ ¡Pestañas 'lunes' y 'jueves' reiniciadas a $0.00!")
+                st.success("✅ ¡Pestañas 'lunes' y 'jueves' reiniciadas a $0.00 y transferencias restablecidas!")
                 st.rerun()
 
         with st.container(border=True):
