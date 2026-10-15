@@ -13,11 +13,10 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# CONFIGURACIONES GENERALES Y HORARIO
+# CONFIGURACIONES GENERALES
 # ==========================================================
 PRESUPUESTO_GLOBAL = 3800.00
 BOLSA_COMODIN_TOTAL = 200.00
-HORA_LIMITE = time(15, 10)  # ⏰ 3:10 PM
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -63,10 +62,9 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
 }
 
+# --- USUARIO ÚNICO ADMINISTRADOR ---
 PASSWORDS_DEFAULT = {
-    "LIAN": "admin123",
-    "VERO": "dis123",
-    "QUEVEDO": "ambiental2026"
+    "LIAN": "admin123"
 }
 
 MAPA_DIA_CARGA = {
@@ -85,10 +83,9 @@ def leer_config():
         return st.session_state.config_memoria
 
     cfg_defecto = {
-        "desbloqueo_horario": False,
         "asignacion_comodin": {},
         "transferencias_libres": [],
-        "dia_activo": "Lunes",
+        "historial_movimientos": [],
         "passwords": PASSWORDS_DEFAULT.copy()
     }
     if os.path.exists(CONFIG_FILE):
@@ -98,6 +95,12 @@ def leer_config():
                 cfg_defecto.update(c)
         except Exception:
             pass
+    # Asegurar que solo exista LIAN en passwords
+    pwds_limpios = {"LIAN": cfg_defecto.get("passwords", {}).get("LIAN", "admin123")}
+    cfg_defecto["passwords"] = pwds_limpios
+    if "historial_movimientos" not in cfg_defecto:
+        cfg_defecto["historial_movimientos"] = []
+        
     st.session_state.config_memoria = cfg_defecto
     return cfg_defecto
 
@@ -111,37 +114,21 @@ def guardar_config(cfg):
 
 def obtener_passwords():
     cfg = leer_config()
-    pwds = cfg.get("passwords", {})
-    actualizado = False
-    for u, p in PASSWORDS_DEFAULT.items():
-        if u not in pwds:
-            pwds[u] = p
-            actualizado = True
-    if actualizado:
-        cfg["passwords"] = pwds
-        guardar_config(cfg)
-    return pwds
+    return cfg.get("passwords", PASSWORDS_DEFAULT.copy())
 
 def calcular_presupuesto_efectivo():
     cfg = leer_config()
     asig_comodin = cfg.get("asignacion_comodin", {})
     transferencias = cfg.get("transferencias_libres", [])
-    cesion_vieja = cfg.get("cesion_lian", {})
     
     presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
     
-    # 1. Asignar Comodín
+    # 1. Asignar Comodín registrado
     for solicitante, extra in asig_comodin.items():
         if solicitante in presupuestos:
             presupuestos[solicitante] += float(extra)
             
-    # 2. Cesiones de LIAN (compatibilidad)
-    for dest, monto in cesion_vieja.items():
-        if dest in presupuestos and dest != "LIAN":
-            presupuestos[dest] += float(monto)
-            presupuestos["LIAN"] = max(0.0, presupuestos["LIAN"] - float(monto))
-            
-    # 3. Transferencias libres entre solicitantes
+    # 2. Aplicar transferencias registradas entre áreas
     for t in transferencias:
         de_quien = t.get("origen")
         a_quien = t.get("destino")
@@ -445,30 +432,49 @@ def generar_pdf_oficial(df_cargas, dia_nombre, f_elab, f_prog):
         
     return bytes(pdf.output())
 
+def verificar_bloqueo_descarga(df_dia_edit, df_otro_dia, presupuestos_efectivos):
+    bloqueado = False
+    mensajes = []
+    for sol_nom, pres_max in presupuestos_efectivos.items():
+        gasto_1 = df_dia_edit[df_dia_edit["Solicitante"] == sol_nom]["Importe"].sum()
+        gasto_2 = df_otro_dia[df_otro_dia["Solicitante"] == sol_nom]["Importe"].sum()
+        tot_sem = gasto_1 + gasto_2
+        if tot_sem > pres_max:
+            bloqueado = True
+            diff = tot_sem - pres_max
+            placas = ", ".join(df_dia_edit[df_dia_edit["Solicitante"] == sol_nom]["Placa"].tolist())
+            mensajes.append(
+                f"• **{sol_nom}** (Placas: `{placas}`): acumulado semanal **${tot_sem:,.2f}** vs autorizado **${pres_max:,.2f}** (Excedido por **${diff:,.2f}**)."
+            )
+    tot_global = df_dia_edit["Importe"].sum() + df_otro_dia["Importe"].sum()
+    if tot_global > PRESUPUESTO_GLOBAL:
+        bloqueado = True
+        diff_g = tot_global - PRESUPUESTO_GLOBAL
+        mensajes.append(
+            f"• **Presupuesto Global Semanal**: Acumulado de **${tot_global:,.2f}** excede los **${PRESUPUESTO_GLOBAL:,.2f}** por **${diff_g:,.2f}**."
+        )
+    return bloqueado, mensajes
+
 # ==========================================
-# 1. INICIO DE SESIÓN
+# 1. INICIO DE SESIÓN (SOLO LIAN)
 # ==========================================
 credenciales_actuales = obtener_passwords()
 
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
-if "vista_simulada" not in st.session_state:
-    st.session_state.vista_simulada = None
 
 if st.session_state.usuario_logueado is None:
-    st.title("⛽ Solicitud de Combustible")
-    st.caption("Dirección de Desarrollo Urbano y Medio Ambiente")
+    st.title("⛽ Control y Solicitud de Combustible")
+    st.caption("Dirección de Desarrollo Urbano y Medio Ambiente — H. Ayuntamiento de Campeche")
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("form_login"):
-            st.subheader("🔐 Iniciar Sesión")
-            usr = st.selectbox("Selecciona tu Usuario", list(credenciales_actuales.keys()))
+            st.subheader("🔐 Acceso Administrador (LIAN)")
             pwd = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar", use_container_width=True):
-                if pwd == credenciales_actuales.get(usr):
-                    st.session_state.usuario_logueado = usr
-                    st.session_state.vista_simulada = None
+                if pwd == credenciales_actuales.get("LIAN", "admin123"):
+                    st.session_state.usuario_logueado = "LIAN"
                     st.rerun()
                 else:
                     st.error("Contraseña incorrecta.")
@@ -477,69 +483,28 @@ if st.session_state.usuario_logueado is None:
 # ==========================================
 # 2. ENCABEZADO Y CONFIGURACIÓN
 # ==========================================
-usuario_real = st.session_state.usuario_logueado
-es_admin_real = (usuario_real == "LIAN")
-usuario_efectivo = st.session_state.vista_simulada if (es_admin_real and st.session_state.vista_simulada) else usuario_real
-
-es_admin = (usuario_efectivo == "LIAN")
-es_capturista = (usuario_efectivo == "VERO")
-
 ahora_local = datetime.now(ZONA_HORARIA)
-hora_actual = ahora_local.time()
-
 FECHA_HOY = date.today()
 FECHA_PROGRAMACION_DEFECTO = FECHA_HOY + timedelta(days=1)
 
 cfg_actual = leer_config()
-desbloqueo_activo = cfg_actual.get("desbloqueo_horario", False)
-sistema_bloqueado = (hora_actual >= HORA_LIMITE) and not es_admin_real and not es_capturista and not desbloqueo_activo
-
 presupuestos_actuales = calcular_presupuesto_efectivo()
 
-c1, c2, c3 = st.columns([2.5, 1.2, 0.8])
+c1, c2 = st.columns([3.2, 0.8])
 with c1:
     st.title("⛽ Control de Combustible")
-    if es_admin_real and st.session_state.vista_simulada:
-        st.warning(f"🧪 **MODO DE PRUEBA ACTIVO**: Simulando vista como **{usuario_efectivo}**")
-    elif es_admin:
-        st.markdown("👑 **ADMINISTRADOR GENERAL**")
-    elif es_capturista:
-        st.markdown("👩‍💼 **DISTRIBUCIÓN Y APOYO OPERATIVO (VERO)**")
-    else:
-        st.markdown(f"👤 Solicitante: **{usuario_efectivo}**")
-        
-    estado_horario = "🟢 Horario Abierto" if not sistema_bloqueado else "🔴 Horario Cerrado (Límite 3:10 PM)"
-    if desbloqueo_activo:
-        estado_horario += " (⚡ Desbloqueo temporal activo)"
-    st.caption(f"🕒 {ahora_local.strftime('%I:%M %p')} | {estado_horario}")
+    st.markdown("👑 **ADMINISTRADOR GENERAL (LIAN)**")
+    st.caption(f"🕒 {ahora_local.strftime('%d/%m/%Y %I:%M %p')}")
 
 with c2:
-    dia_guardado = cfg_actual.get("dia_activo", "Lunes")
-    if es_admin:
-        dia_activo = st.radio("📅 Turno de Captura para Usuarios:", ["Lunes", "Jueves"], horizontal=True, index=0 if dia_guardado == "Lunes" else 1)
-        if dia_activo != dia_guardado:
-            cfg_actual["dia_activo"] = dia_activo
-            guardar_config(cfg_actual)
-            st.rerun()
-    else:
-        dia_activo = dia_guardado
-        st.info(f"📅 Solicitud Activa: **{dia_activo}**")
-
-with c3:
     st.write("")
     if st.button("🔄 Sincronizar", use_container_width=True):
         obtener_datos_dos_hojas(forzar=True)
         st.toast("Datos sincronizados con Google Sheets.", icon="✅")
         st.rerun()
-    if es_admin_real and st.session_state.vista_simulada:
-        if st.button("⬅️ Volver", use_container_width=True):
-            st.session_state.vista_simulada = None
-            st.rerun()
-    else:
-        if st.button("🚪 Salir", use_container_width=True):
-            st.session_state.usuario_logueado = None
-            st.session_state.vista_simulada = None
-            st.rerun()
+    if st.button("🚪 Salir", use_container_width=True):
+        st.session_state.usuario_logueado = None
+        st.rerun()
 
 # --- CAMBIO DE CONTRASEÑA ---
 with st.expander("🔑 Cambiar mi contraseña de acceso"):
@@ -553,923 +518,713 @@ with st.expander("🔑 Cambiar mi contraseña de acceso"):
         st.write("")
         if st.button("💾 Actualizar Clave", use_container_width=True):
             if len(nueva_pass.strip()) < 4:
-                st.error("La contraseña debe tener al menos 4 caracteres (letras o números).")
+                st.error("La contraseña debe tener al menos 4 caracteres.")
             elif nueva_pass != conf_pass:
                 st.error("Las contraseñas no coinciden.")
             else:
-                pwds = cfg_actual.get("passwords", PASSWORDS_DEFAULT.copy())
-                pwds[usuario_real] = nueva_pass.strip()
-                cfg_actual["passwords"] = pwds
+                cfg_actual["passwords"] = {"LIAN": nueva_pass.strip()}
                 guardar_config(cfg_actual)
                 st.success("✅ ¡Contraseña actualizada exitosamente!")
 
 df_lunes, df_jueves = obtener_datos_dos_hojas()
 
 # ==========================================
-# 3. VISTA VERO (DISTRIBUCIÓN Y BLOQUEO FINANCIERO)
+# 3. PANEL PRINCIPAL ADMINISTRADOR (LIAN)
 # ==========================================
-if es_capturista:
-    PRESUPUESTO_TOPE_VERO = 3800.00
+st.subheader("⚙️ Panel de Consolidación, Edición y Descarga Oficial")
 
-    st.info("📌 **Paso 1:** Revisa las fechas del oficio y el turno de carga antes de capturar.")
+col_f1, col_f2 = st.columns(2)
+with col_f1:
+    f_elab = st.date_input("Fecha de Elaboración", value=FECHA_HOY)
+with col_f2:
+    f_prog = st.date_input("Programación para el día", value=FECHA_PROGRAMACION_DEFECTO)
+
+tab_saldos, tab_lunes, tab_jueves, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
+    "📊 Monitoreo y Asignación de Presupuestos",
+    "📄 Formato y Carga LUNES",
+    "📄 Formato y Carga JUEVES",
+    "🛵 Mi Carga (LIAN / Alonzo)",
+    "✅ Auditoría y Cierre Semanal",
+    "🛠️ Cierre de Viernes"
+])
+
+# 1. MONITOREO Y TRANSFERENCIA DE PRESUPUESTOS
+with tab_saldos:
+    st.markdown("##### 💵 Balance Semanal de Presupuestos en Tiempo Real")
     
-    col_v1, col_v2, col_v3 = st.columns(3)
-    with col_v1:
-        f_elab_vero = st.date_input("📅 Fecha de Elaboración", value=FECHA_HOY, help="Fecha en que se tramita el oficio.")
-    with col_v2:
-        f_prog_vero = st.date_input("🗓️ Fecha de Programación", value=FECHA_PROGRAMACION_DEFECTO, help="Día en que las unidades cargarán combustible.")
-    with col_v3:
-        turno_vero = st.selectbox("⏰ Turno a Distribuir", ["Lunes", "Jueves"], index=0 if dia_activo == "Lunes" else 1)
+    tot_lunes_sol = df_lunes["Importe"].sum()
+    tot_jueves_sol = df_jueves["Importe"].sum()
+    tot_global_semana = tot_lunes_sol + tot_jueves_sol
+    saldo_global_semana = PRESUPUESTO_GLOBAL - tot_global_semana
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Presupuesto Semanal Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
+    c2.metric("Total Solicitado Lunes", f"${tot_lunes_sol:,.2f}")
+    c3.metric("Total Solicitado Jueves", f"${tot_jueves_sol:,.2f}")
+    c4.metric(
+        "Saldo Libre Semana", 
+        f"${saldo_global_semana:,.2f}", 
+        delta=f"${tot_global_semana:,.2f} total pedido",
+        delta_color="normal" if saldo_global_semana >= 0 else "inverse"
+    )
+    
+    st.write("")
+    st.markdown("##### 📋 Resumen Financiero por Solicitante")
+    filas_saldos_area = []
+    saldos_restantes_por_solicitante = {}
+    excedentes_sin_cubrir = 0.0
+
+    for sol, p_efectivo in presupuestos_actuales.items():
+        sub_l = df_lunes[df_lunes["Solicitante"] == sol]
+        sub_j = df_jueves[df_jueves["Solicitante"] == sol]
+        sol_l = sub_l["Importe"].sum()
+        sol_j = sub_j["Importe"].sum()
+        sol_tot = sol_l + sol_j
+        disp_monto = p_efectivo - sol_tot
+        saldos_restantes_por_solicitante[sol] = disp_monto
         
-    df_actual_vero = df_lunes.copy() if turno_vero == "Lunes" else df_jueves.copy()
-    dia_efectivo_vero = MAPA_DIA_CARGA.get(turno_vero, turno_vero.upper())
-
-    # --- CÁLCULO FINANCIERO ACUMULADO REAL ---
-    gasto_lunes_acumulado = df_lunes["Importe"].sum()
-    gasto_jueves_acumulado = df_jueves["Importe"].sum()
-
-    if turno_vero == "Lunes":
-        presupuesto_disponible_turno = PRESUPUESTO_TOPE_VERO
-        gasto_otro_turno = 0.0
-    else:
-        presupuesto_disponible_turno = max(0.0, PRESUPUESTO_TOPE_VERO - gasto_lunes_acumulado)
-        gasto_otro_turno = gasto_lunes_acumulado
+        if disp_monto < 0:
+            excedentes_sin_cubrir += abs(disp_monto)
+        
+        if disp_monto == 0:
+            estatus = "✅ 100% Ejercido"
+        elif disp_monto < 0:
+            estatus = "⚠️ Excedido (Requiere Transferencia/Comodín)"
+        elif sol_tot > 0:
+            estatus = "🟢 Con Saldo"
+        else:
+            estatus = "⚪ Sin Carga"
+            
+        filas_saldos_area.append({
+            "Solicitante / Área": sol,
+            "Presupuesto Base": PRESUPUESTO_BASE_POR_SOLICITANTE.get(sol, 0.0),
+            "Presupuesto Semanal Autorizado": p_efectivo,
+            "Carga Lunes": sol_l,
+            "Carga Jueves": sol_j,
+            "Total Solicitado": sol_tot,
+            "Saldo Disponible Restante": disp_monto,
+            "Estatus": estatus
+        })
+        
+    df_saldos_area = pd.DataFrame(filas_saldos_area)
+    st.dataframe(
+        df_saldos_area,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
+            "Presupuesto Semanal Autorizado": st.column_config.NumberColumn(format="$%.2f"),
+            "Carga Lunes": st.column_config.NumberColumn(format="$%.2f"),
+            "Carga Jueves": st.column_config.NumberColumn(format="$%.2f"),
+            "Total Solicitado": st.column_config.NumberColumn(format="$%.2f"),
+            "Saldo Disponible Restante": st.column_config.NumberColumn(format="$%.2f"),
+        }
+    )
 
     st.divider()
-    st.subheader(f"📋 Distribución de Carga — Remesa {turno_vero.upper()} (Carga Efectiva: {dia_efectivo_vero})")
+    st.markdown("##### 🔀 Asignar Comodín y Transferir Presupuesto entre Solicitantes")
     
-    if turno_vero == "Jueves":
-        st.info(f"💡 El Lunes se solicitaron **${gasto_lunes_acumulado:,.2f}**. El saldo libre restante para este Jueves es de **${presupuesto_disponible_turno:,.2f}**.")
+    # Cálculo estricto de Comodín Disponible:
+    # Descuenta lo ya asignado manualmente Y verifica que no supere el saldo global libre
+    asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
+    total_comodin_asignado = sum(asig_comodin_dict.values())
+    comodin_restante_bolsa = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_asignado)
+    # Tampoco se puede asignar comodín si el gasto de lunes/jueves ya agotó el presupuesto global de $3,800
+    comodin_real_disponible = max(0.0, min(comodin_restante_bolsa, max(0.0, saldo_global_semana + excedentes_sin_cubrir)))
 
-    st.caption("Selecciona el conductor autorizado (o escribe uno nuevo con la opción 'OTRO') e ingresa el importe para cada vehículo:")
+    col_t1, col_t2 = st.columns(2)
+    
+    with col_t1:
+        with st.container(border=True):
+            st.markdown("🎁 **Bolsa Comodín ($200.00 Semanales)**")
+            if comodin_real_disponible > 0:
+                st.info(
+                    f"💰 **Saldo Comodín Disponible para Asignar:** `${comodin_real_disponible:,.2f}`\n\n"
+                    f"*(Ya asignado en la semana: `${total_comodin_asignado:,.2f}`)*"
+                )
+            else:
+                st.error(
+                    f"🔒 **COMODÍN AGOTADO ($0.00 DISPONIBLE)**\n\n"
+                    f"Ya se asignaron o consumieron los `${BOLSA_COMODIN_TOTAL:,.2f}` del comodín en la semana."
+                )
+            
+            destinatario_comodin = st.selectbox(
+                "Asignar Comodín a:", 
+                list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys()), 
+                key="sel_comodin",
+                disabled=(comodin_real_disponible <= 0)
+            )
+            saldo_dest_comodin = saldos_restantes_por_solicitante.get(destinatario_comodin, 0.0)
+            comodin_ya_recibido = asig_comodin_dict.get(destinatario_comodin, 0.0)
+            
+            st.caption(
+                f"📊 Saldo restante actual de **{destinatario_comodin}**: **`${saldo_dest_comodin:,.2f}`** "
+                f"| Comodín recibido: **`${comodin_ya_recibido:,.2f}`**"
+            )
+            
+            monto_comodin_add = st.number_input(
+                "Monto de Comodín a Asignar ($)", 
+                min_value=0.0, 
+                max_value=float(comodin_real_disponible) if comodin_real_disponible > 0 else 0.0, 
+                step=50.0, 
+                value=0.0, 
+                key="inp_comodin",
+                disabled=(comodin_real_disponible <= 0)
+            )
+            
+            if st.button("➕ Registrar y Asignar Comodín", use_container_width=True, disabled=(comodin_real_disponible <= 0)):
+                if monto_comodin_add <= 0:
+                    st.warning("Ingresa un monto mayor a $0.00.")
+                elif monto_comodin_add > comodin_real_disponible:
+                    st.error("No hay suficiente saldo en el comodín.")
+                else:
+                    asig_act = cfg_actual.get("asignacion_comodin", {})
+                    asig_act[destinatario_comodin] = asig_act.get(destinatario_comodin, 0.0) + monto_comodin_add
+                    cfg_actual["asignacion_comodin"] = asig_act
+                    
+                    hist = cfg_actual.get("historial_movimientos", [])
+                    hist.append({
+                        "fecha": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                        "tipo": "🎁 ASIGNACIÓN COMODÍN",
+                        "origen": "BOLSA COMODÍN",
+                        "destino": destinatario_comodin,
+                        "monto": float(monto_comodin_add)
+                    })
+                    cfg_actual["historial_movimientos"] = hist
+                    guardar_config(cfg_actual)
+                    st.toast(f"Asignados ${monto_comodin_add:,.2f} de comodín a {destinatario_comodin}", icon="✅")
+                    st.rerun()
 
-    with st.form("form_distribucion_vero"):
-        nuevos_registros_vero = []
+    with col_t2:
+        with st.container(border=True):
+            st.markdown("🤝 **Transferencia Directa entre Áreas (Solo Saldo Libre)**")
+            lista_solicitantes = list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys())
+            
+            c_origen, c_destino = st.columns(2)
+            with c_origen:
+                sol_origen = st.selectbox("Ceder de (Origen):", lista_solicitantes, key="sel_origen_trans")
+            with c_destino:
+                destinatarios_posibles = [s for s in lista_solicitantes if s != sol_origen]
+                sol_destino = st.selectbox("Transferir a (Destino):", destinatarios_posibles, key="sel_destino_trans")
+            
+            # Saldo REAL restante del origen (Autorizado - Gastado Lunes - Gastado Jueves)
+            saldo_restante_origen = max(0.0, float(saldos_restantes_por_solicitante.get(sol_origen, 0.0)))
+            saldo_restante_destino = float(saldos_restantes_por_solicitante.get(sol_destino, 0.0))
+            
+            if saldo_restante_origen > 0:
+                st.info(
+                    f"💵 **Saldo Disponible para Transferir en {sol_origen}:** `${saldo_restante_origen:,.2f}`\n\n"
+                    f"📥 **Saldo Restante Actual en {sol_destino}:** `${saldo_restante_destino:,.2f}`"
+                )
+            else:
+                st.error(
+                    f"🔒 **{sol_origen} NO TIENE SALDO DISPONIBLE ($0.00)**\n\n"
+                    f"Ya ejerció o cedió todo su presupuesto en la solicitud de la semana. No puede transferir fondos."
+                )
+            
+            monto_transferir = st.number_input(
+                "Monto a Transferir ($)", 
+                min_value=0.0, 
+                max_value=saldo_restante_origen if saldo_restante_origen > 0 else 0.0, 
+                step=50.0, 
+                value=0.0, 
+                key="inp_monto_trans",
+                disabled=(saldo_restante_origen <= 0)
+            )
+            
+            if st.button("🔄 Registrar y Ejecutar Transferencia", use_container_width=True, disabled=(saldo_restante_origen <= 0)):
+                if monto_transferir <= 0:
+                    st.warning("Ingresa un monto mayor a $0.00.")
+                elif monto_transferir > saldo_restante_origen:
+                    st.error("El origen no cuenta con ese saldo disponible.")
+                else:
+                    trans_list = cfg_actual.get("transferencias_libres", [])
+                    trans_list.append({
+                        "origen": sol_origen,
+                        "destino": sol_destino,
+                        "monto": float(monto_transferir)
+                    })
+                    cfg_actual["transferencias_libres"] = trans_list
+                    
+                    hist = cfg_actual.get("historial_movimientos", [])
+                    hist.append({
+                        "fecha": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                        "tipo": "🤝 TRANSFERENCIA DE SALDO",
+                        "origen": sol_origen,
+                        "destino": sol_destino,
+                        "monto": float(monto_transferir)
+                    })
+                    cfg_actual["historial_movimientos"] = hist
+                    guardar_config(cfg_actual)
+                    st.toast(f"Transferidos ${monto_transferir:,.2f} de {sol_origen} a {sol_destino}", icon="🤝")
+                    st.rerun()
+
+    # --- BITÁCORA DE MOVIMIENTOS REGISTRADOS EN LA SEMANA ---
+    historial_movs = cfg_actual.get("historial_movimientos", [])
+    if historial_movs or cfg_actual.get("asignacion_comodin") or cfg_actual.get("transferencias_libres"):
+        st.write("")
+        st.markdown("##### 📜 Bitácora de Asignaciones de Comodín y Transferencias Registradas")
+        if historial_movs:
+            df_hist_mov = pd.DataFrame(historial_movs)
+            df_hist_mov.columns = ["Fecha y Hora", "Tipo de Movimiento", "Origen", "Destino", "Monto ($)"]
+            st.dataframe(
+                df_hist_mov,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Monto ($)": st.column_config.NumberColumn(format="$%.2f")
+                }
+            )
+        if st.button("🔄 Restablecer Todas las Transferencias y Comodín a Valores Base", type="secondary", use_container_width=True):
+            cfg_actual["asignacion_comodin"] = {}
+            cfg_actual["transferencias_libres"] = []
+            cfg_actual["historial_movimientos"] = []
+            cfg_actual["cesion_lian"] = {}
+            guardar_config(cfg_actual)
+            st.toast("Presupuestos y bitácora restablecidos a valores originales.", icon="🔄")
+            st.rerun()
+
+# 2. CARGA LUNES
+with tab_lunes:
+    st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Carga Efectiva: MARTES)")
+    st.caption("Selecciona el operador o usa el desplegable inferior para quitar una carga y liberar el presupuesto:")
+    
+    with st.form("form_admin_lunes_exclusivo"):
+        nuevos_lunes = []
         
-        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.8, 1.4, 1.0, 2.2, 1.2])
+        c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
         c_h1.markdown("**Área / Solicitante**")
         c_h2.markdown("**Vehículo**")
         c_h3.markdown("**Placa**")
-        c_h4.markdown("**Operador Asignado**")
+        c_h4.markdown("**Operador Autorizado**")
         c_h5.markdown("**Importe ($)**")
         st.divider()
 
-        for idx, row in df_actual_vero.iterrows():
+        for idx, row in df_lunes.iterrows():
             r_num = int(row["row"])
             sol = row["Solicitante"]
-            
             ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
-            val_act = limpiar_texto_operador(row["Operador"])
             
+            val_act = limpiar_texto_operador(row["Operador"])
             if val_act and val_act not in ops_disponibles:
                 ops_disponibles.append(val_act)
             ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                 
             idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
             
-            c_a, c_v, c_p, c_o, c_i = st.columns([1.8, 1.4, 1.0, 2.2, 1.2])
+            c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
             c_a.write(sol)
             c_v.write(row["Vehículo"])
             c_p.code(row["Placa"])
             
             sel_op = c_o.selectbox(
-                f"Op Vero {r_num}",
+                f"Op Lunes {r_num}",
                 options=ops_disponibles,
                 index=idx_op,
-                key=f"vero_op_{turno_vero}_{r_num}",
+                key=f"adm_op_l_{r_num}",
                 label_visibility="collapsed"
             )
             
-            op_final = sel_op
+            op_final_l = sel_op
             if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
-                op_extra = st.text_input(
-                    f"Escribe el nombre del chofer extraordinario para {row['Vehículo']} ({row['Placa']}):",
-                    value="",
-                    key=f"extra_op_{turno_vero}_{r_num}",
-                    placeholder="NOMBRE Y APELLIDO DEL OPERADOR"
+                op_ext_l = st.text_input(
+                    f"Nuevo operador {row['Vehículo']}:",
+                    key=f"adm_ext_op_l_{r_num}",
+                    placeholder="NOMBRE COMPLETO"
                 )
-                op_final = op_extra.strip().upper()
-            
-            val_actual_imp = float(row["Importe"])
+                op_final_l = op_ext_l.strip().upper()
             
             inp_imp = c_i.number_input(
-                f"Imp Vero {r_num}",
-                value=val_actual_imp,
+                f"Imp Lunes {r_num}",
+                value=float(row["Importe"]),
                 step=50.0,
                 min_value=0.0,
-                key=f"vero_imp_{turno_vero}_{r_num}",
+                key=f"adm_imp_l_{r_num}",
                 format="%.2f",
                 label_visibility="collapsed"
             )
             
-            nuevos_registros_vero.append({
+            nuevos_lunes.append({
                 "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
                 "Placa": row["Placa"], "Actividad": row["Actividad"],
-                "Operador": op_final, "Importe": inp_imp, "Real": row["Real"]
+                "Operador": op_final_l, "Importe": inp_imp, "Real": row["Real"]
             })
             
-        df_vero_edit = pd.DataFrame(nuevos_registros_vero)
-        total_hoy = df_vero_edit["Importe"].sum()
+        df_lunes_edit = pd.DataFrame(nuevos_lunes)
         
-        if turno_vero == "Lunes":
-            total_semana_proyectado = total_hoy + gasto_jueves_acumulado
-        else:
-            total_semana_proyectado = total_hoy + gasto_lunes_acumulado
-            
-        saldo_restante_real = PRESUPUESTO_TOPE_VERO - total_semana_proyectado
-
-        st.divider()
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Presupuesto Semanal Global", f"${PRESUPUESTO_TOPE_VERO:,.2f}")
-        m2.metric(f"Gasto Previo Lunes", f"${gasto_otro_turno:,.2f}")
-        m3.metric(f"Capturado {turno_vero}", f"${total_hoy:,.2f}")
-        m4.metric(
-            "Saldo Libre Real Restante",
-            f"${saldo_restante_real:,.2f}",
-            delta="Dentro de Presupuesto" if saldo_restante_real >= 0 else "Excedido",
-            delta_color="normal" if saldo_restante_real >= 0 else "inverse"
-        )
-
-        btn_guardar_vero = st.form_submit_button(
-            f"💾 Guardar y Sincronizar Distribución de {turno_vero}", 
-            type="primary", 
-            use_container_width=True
-        )
-        
-        if btn_guardar_vero:
-            with st.spinner(f"Guardando cambios en la pestaña '{turno_vero.lower()}'..."):
-                exito = enviar_datos_hoja(df_vero_edit, hoja=turno_vero.lower(), tipo="solicitado", f_elab=f_elab_vero, f_prog=f_prog_vero)
+        btn_guardar_lunes = st.form_submit_button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True)
+        if btn_guardar_lunes:
+            with st.spinner("Guardando en pestaña 'lunes'..."):
+                exito = enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                 if exito:
-                    st.success(f"✅ ¡Cargas del {turno_vero} guardadas exitosamente en Google Sheets!")
+                    st.success("✅ ¡Cargas del Lunes guardadas y sincronizadas!")
                     st.rerun()
                 else:
                     st.error("Error al guardar en Google Sheets.")
 
-    # --- VERIFICACIÓN DE EXCEDENTES POR ÁREA ---
-    df_otro_turno = df_jueves if turno_vero == "Lunes" else df_lunes
-    bloqueo_por_excedente = False
-    detalles_excedentes = []
+    with st.expander("🗑️ Quitar Carga Específica del LUNES (Regresar Saldo al Presupuesto)"):
+        c_del1, c_del2 = st.columns([3, 1])
+        with c_del1:
+            veh_borrar_l = st.selectbox(
+                "Selecciona el vehículo cuya carga deseas eliminar:",
+                options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
+                key="sel_del_lunes"
+            )
+        with c_del2:
+            st.write("")
+            if st.button("❌ Quitar Carga", key="btn_del_lunes", use_container_width=True):
+                r_target = int(veh_borrar_l.split(" - ")[0].replace("Fila ", ""))
+                df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Operador"] = ""
+                df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Importe"] = 0.0
+                enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
+                st.rerun()
 
-    for sol_nom, pres_max in presupuestos_actuales.items():
-        sub_actual = df_vero_edit[df_vero_edit["Solicitante"] == sol_nom]
-        sub_otro = df_otro_turno[df_otro_turno["Solicitante"] == sol_nom]
-        
-        gasto_actual = sub_actual["Importe"].sum()
-        gasto_otro = sub_otro["Importe"].sum()
-        gasto_total_semanal = gasto_actual + gasto_otro
-        
-        if gasto_total_semanal > pres_max:
-            bloqueo_por_excedente = True
-            diff = gasto_total_semanal - pres_max
-            placas_afectadas = ", ".join(sub_actual["Placa"].tolist())
-            detalles_excedentes.append(f"• **{sol_nom}** (Placas: `{placas_afectadas}`): acumulado **${gasto_total_semanal:,.2f}** vs autorizado **${pres_max:,.2f}** (Excedido por **${diff:,.2f}**).")
-
-    if total_semana_proyectado > PRESUPUESTO_TOPE_VERO:
-        bloqueo_por_excedente = True
-        diff_global = total_semana_proyectado - PRESUPUESTO_TOPE_VERO
-        detalles_excedentes.append(f"• **Presupuesto Global Semanal**: El acumulado de la semana (${total_semana_proyectado:,.2f}) excede el tope de ${PRESUPUESTO_TOPE_VERO:,.2f} por **${diff_global:,.2f}**.")
-
-    # --- DESCARGA DE OFICIOS (CON BLOQUEO AUTOMÁTICO) ---
-    st.divider()
-    st.markdown("##### 📥 Descargar Oficios del Día")
-    
-    if bloqueo_por_excedente:
-        st.error("⛔ **DESCARGA DE ARCHIVOS BLOQUEADA**")
-        st.warning(
-            "No es posible generar ni descargar los oficios oficiales porque las siguientes unidades sobrepasan el presupuesto autorizado:\n\n"
-            + "\n".join(detalles_excedentes)
-            + "\n\n💡 *Para desbloquear: Ajusta los montos capturados o solicita al Administrador (LIAN) que te transfiera saldo o asigne comodín.*"
-        )
+    st.markdown("---")
+    bloqueo_l, det_l = verificar_bloqueo_descarga(df_lunes_edit, df_jueves, presupuestos_actuales)
+    if bloqueo_l:
+        st.error("⛔ **DESCARGA DE ARCHIVOS BLOQUEADA POR EXCEDENTE DE PRESUPUESTO**")
+        st.warning("Revisa las siguientes unidades:\n\n" + "\n".join(det_l) + "\n\n💡 *Asigna comodín o transfiere presupuesto en la Pestaña 1 para desbloquear.*")
     else:
         st.success("✅ Presupuestos en orden. Formatos listos para descarga.")
 
-    df_solo_cargas_vero = df_vero_edit[df_vero_edit["Importe"] > 0].copy()
-    nombre_excel_vero = obtener_nombre_archivo_oficial("SOLICITUD", turno_vero, f_prog_vero, "xlsx")
-    nombre_pdf_vero = obtener_nombre_archivo_oficial("OFICIO", turno_vero, f_prog_vero, "pdf")
+    df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe"] > 0].copy()
+    nombre_excel_l = obtener_nombre_archivo_oficial("SOLICITUD", "Lunes", f_prog, "xlsx")
+    nombre_pdf_l = obtener_nombre_archivo_oficial("OFICIO", "Lunes", f_prog, "pdf")
     
-    excel_vero = generar_excel_oficial_formato(df_vero_edit, turno_vero, f_elab_vero, f_prog_vero) if not bloqueo_por_excedente else b""
-    pdf_vero = generar_pdf_oficial(df_solo_cargas_vero, turno_vero, f_elab_vero, f_prog_vero) if not bloqueo_por_excedente else b""
-
-    col_v_dl1, col_v_dl2 = st.columns(2)
-    with col_v_dl1:
+    excel_lunes = generar_excel_oficial_formato(df_lunes_edit, "Lunes", f_elab, f_prog) if not bloqueo_l else b""
+    pdf_lunes = generar_pdf_oficial(df_solo_lunes, "Lunes", f_elab, f_prog) if not bloqueo_l else b""
+    
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
         st.download_button(
-            label=f"📊 Descargar Formato Excel ({nombre_excel_vero})",
-            data=excel_vero,
-            file_name=nombre_excel_vero,
+            label=f"📥 Descargar Formato Excel ({nombre_excel_l})",
+            data=excel_lunes,
+            file_name=nombre_excel_l,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
-            disabled=bloqueo_por_excedente
+            disabled=bloqueo_l
         )
-    with col_v_dl2:
+    with col_dl2:
         st.download_button(
-            label=f"📄 Descargar Oficio PDF ({nombre_pdf_vero})",
-            data=pdf_vero,
-            file_name=nombre_pdf_vero,
+            label=f"📄 Descargar Oficio PDF ({nombre_pdf_l})",
+            data=pdf_lunes,
+            file_name=nombre_pdf_l,
             mime="application/pdf",
             use_container_width=True,
-            disabled=bloqueo_por_excedente
+            disabled=bloqueo_l
         )
 
-# ==========================================
-# 4. VISTA SOLICITANTE GENERAL (QUEVEDO)
-# ==========================================
-elif not es_admin:
-    presupuesto_semanal_total = presupuestos_actuales.get(usuario_efectivo, 0.00)
+# 3. CARGA JUEVES
+with tab_jueves:
+    st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Carga Efectiva: VIERNES)")
+    st.info(f"💡 El Lunes se solicitaron **${tot_lunes_sol:,.2f}**. El saldo libre global restante para cerrar la semana es de **${max(0.0, PRESUPUESTO_GLOBAL - tot_lunes_sol):,.2f}**.")
     
-    sub_l = df_lunes[df_lunes["Solicitante"] == usuario_efectivo]
-    sub_j = df_jueves[df_jueves["Solicitante"] == usuario_efectivo]
-    
-    gasto_lunes = sub_l["Real"].sum()
-    if gasto_lunes == 0.0:
-        gasto_lunes = sub_l["Importe"].sum()
+    with st.form("form_admin_jueves_exclusivo"):
+        nuevos_jueves = []
         
-    if dia_activo == "Lunes":
-        saldo_disponible_hoy = presupuesto_semanal_total
-        gasto_previo_info = 0.0
-        df_turno_actual = sub_l.copy()
-    else:
-        saldo_disponible_hoy = max(0.0, presupuesto_semanal_total - gasto_lunes)
-        gasto_previo_info = gasto_lunes
-        df_turno_actual = sub_j.copy()
-
-    lista_operadores_autorizados = OPERADORES_POR_SOLICITANTE.get(usuario_efectivo, [])
-    
-    if sistema_bloqueado:
-        st.error("🔒 **SISTEMA CERRADO POR HORARIO (3:10 PM)**. La captura ha finalizado.")
-    else:
-        if dia_activo == "Jueves":
-            st.info(f"💡 Se cargaron **${gasto_previo_info:,.2f}** el Lunes. Tu saldo restante disponible para este Jueves es **${saldo_disponible_hoy:,.2f}**.")
-        st.caption(f"📱 Selecciona los conductores e importes para la carga del **{dia_activo}**:")
-    
-    with st.form("form_solicitante_movil"):
-        nuevos_valores = []
-        
-        for idx, row in df_turno_actual.iterrows():
-            with st.container(border=True):
-                st.markdown(f"🛵 **{row['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row['Placa']}`**")
-                st.caption(f"📋 **Actividad:** {row['Actividad']}")
-                
-                c_op, c_imp = st.columns([1.5, 1])
-                opciones_operadores = [""] + lista_operadores_autorizados
-                val_actual = str(row["Operador"]).strip()
-                
-                if val_actual and val_actual not in opciones_operadores:
-                    opciones_operadores.append(val_actual)
-                opciones_operadores.append("➕ OTRO (ESCRIBIR NOMBRE)")
-                    
-                idx_op = opciones_operadores.index(val_actual) if val_actual in opciones_operadores else 0
-                
-                with c_op:
-                    val_encargado = st.selectbox(
-                        "Operador / Conductor",
-                        options=opciones_operadores,
-                        index=idx_op,
-                        key=f"op_{dia_activo}_{row['row']}",
-                        disabled=sistema_bloqueado
-                    )
-                    
-                op_final_sol = val_encargado
-                if val_encargado == "➕ OTRO (ESCRIBIR NOMBRE)":
-                    op_ext_sol = st.text_input(
-                        f"Nombre del conductor extraordinario:",
-                        key=f"ext_op_sol_{row['row']}",
-                        placeholder="NOMBRE COMPLETO"
-                    )
-                    op_final_sol = op_ext_sol.strip().upper()
-                    
-                with c_imp:
-                    val_importe = st.number_input(
-                        f"Monto {dia_activo} ($)",
-                        value=float(row["Importe"]),
-                        step=50.0,
-                        min_value=0.0,
-                        key=f"imp_{dia_activo}_{row['row']}",
-                        disabled=sistema_bloqueado,
-                        format="%.2f"
-                    )
-                
-                nuevos_valores.append({
-                    "row": row["row"],
-                    "Solicitante": row["Solicitante"],
-                    "Vehículo": row["Vehículo"],
-                    "Placa": row["Placa"],
-                    "Actividad": row["Actividad"],
-                    "Operador": op_final_sol,
-                    "Importe": val_importe,
-                    "Real": row["Real"]
-                })
-        
-        df_edit_movil = pd.DataFrame(nuevos_valores)
-        total_capturado_hoy = df_edit_movil["Importe"].sum()
-        saldo_restante_hoy = saldo_disponible_hoy - total_capturado_hoy
-        
+        c_jh1, c_jh2, c_jh3, c_jh4, c_jh5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+        c_jh1.markdown("**Área / Solicitante**")
+        c_jh2.markdown("**Vehículo**")
+        c_jh3.markdown("**Placa**")
+        c_jh4.markdown("**Operador Autorizado**")
+        c_jh5.markdown("**Importe ($)**")
         st.divider()
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Presupuesto Semanal Total", f"${presupuesto_semanal_total:,.2f}")
-        m2.metric("Gasto Previo Lunes", f"${gasto_previo_info:,.2f}")
-        m3.metric(f"Capturado {dia_activo}", f"${total_capturado_hoy:,.2f}")
-        m4.metric("Saldo Restante", f"${saldo_restante_hoy:,.2f}", delta_color="normal" if saldo_restante_hoy >= 0 else "off")
-        
-        if total_capturado_hoy > saldo_disponible_hoy:
-            st.error(f"⚠️ Excedes el saldo disponible para este {dia_activo} por **${abs(saldo_restante_hoy):,.2f} MXN**.")
+
+        for idx, row in df_jueves.iterrows():
+            r_num = int(row["row"])
+            sol = row["Solicitante"]
+            ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
             
-        btn_guardar = st.form_submit_button(f"💾 Guardar Solicitud de {dia_activo}", type="primary", use_container_width=True, disabled=sistema_bloqueado)
-        
-        if btn_guardar:
-            if total_capturado_hoy > saldo_disponible_hoy:
-                st.error("No puedes guardar si excedes el saldo disponible.")
-            else:
-                with st.spinner(f"Guardando solicitud en la pestaña '{dia_activo.lower()}'..."):
-                    exito = enviar_datos_hoja(df_edit_movil, hoja=dia_activo.lower(), tipo="solicitado")
-                    if exito:
-                        st.success(f"✅ ¡Solicitud del {dia_activo} guardada con éxito en Google Sheets!")
-                    else:
-                        st.error("Error al comunicarse con Google Sheets.")
-
-# ==========================================
-# 5. VISTA ADMINISTRADOR (LIAN)
-# ==========================================
-else:
-    st.subheader("⚙️ Panel de Consolidación, Edición y Descarga Oficial")
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        f_elab = st.date_input("Fecha de Elaboración", value=FECHA_HOY)
-    with col_f2:
-        f_prog = st.date_input("Programación para el día", value=FECHA_PROGRAMACION_DEFECTO)
-
-    tab_saldos, tab_lunes, tab_jueves, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
-        "📊 Monitoreo y Asignación de Presupuestos",
-        "📄 Formato y Carga LUNES",
-        "📄 Formato y Carga JUEVES",
-        "🛵 Mi Carga (LIAN / Alonzo)",
-        "✅ Auditoría y Cierre Semanal",
-        "🛠️ Modo Pruebas y Cierre de Viernes"
-    ])
-
-    # 1. MONITOREO Y TRANSFERENCIA DE PRESUPUESTOS (TRANSFERENCIA LIBRE ENTRE OPERADORES)
-    with tab_saldos:
-        st.markdown("##### 💵 Balance Semanal de Presupuestos en Tiempo Real")
-        
-        tot_lunes_sol = df_lunes["Importe"].sum()
-        tot_jueves_sol = df_jueves["Importe"].sum()
-        tot_global_semana = tot_lunes_sol + tot_jueves_sol
-        saldo_global_semana = PRESUPUESTO_GLOBAL - tot_global_semana
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Presupuesto Semanal Global", f"${PRESUPUESTO_GLOBAL:,.2f}")
-        c2.metric("Total Solicitado Lunes", f"${tot_lunes_sol:,.2f}")
-        c3.metric("Total Solicitado Jueves", f"${tot_jueves_sol:,.2f}")
-        c4.metric(
-            "Saldo Libre Semana", 
-            f"${saldo_global_semana:,.2f}", 
-            delta=f"${tot_global_semana:,.2f} total pedido",
-            delta_color="normal" if saldo_global_semana >= 0 else "inverse"
-        )
-        
-        st.write("")
-        st.markdown("##### 📋 Resumen Financiero por Solicitante")
-        filas_saldos_area = []
-        for sol, p_efectivo in presupuestos_actuales.items():
-            sub_l = df_lunes[df_lunes["Solicitante"] == sol]
-            sub_j = df_jueves[df_jueves["Solicitante"] == sol]
-            sol_l = sub_l["Importe"].sum()
-            sol_j = sub_j["Importe"].sum()
-            sol_tot = sol_l + sol_j
-            disp_monto = p_efectivo - sol_tot
-            
-            if disp_monto == 0:
-                estatus = "✅ 100% Ejercido"
-            elif disp_monto < 0:
-                estatus = "⚠️ Excedido"
-            elif sol_tot > 0:
-                estatus = "🟢 Con Saldo"
-            else:
-                estatus = "⚪ Sin Carga"
+            val_act = limpiar_texto_operador(row["Operador"])
+            if val_act and val_act not in ops_disponibles:
+                ops_disponibles.append(val_act)
+            ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
                 
-            filas_saldos_area.append({
-                "Solicitante / Área": sol,
-                "Presupuesto Base": PRESUPUESTO_BASE_POR_SOLICITANTE.get(sol, 0.0),
-                "Presupuesto Semanal Autorizado": p_efectivo,
-                "Carga Lunes": sol_l,
-                "Carga Jueves": sol_j,
-                "Total Solicitado": sol_tot,
-                "Saldo Disponible Restante": disp_monto,
-                "Estatus": estatus
+            idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
+            
+            c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
+            c_a.write(sol)
+            c_v.write(row["Vehículo"])
+            c_p.code(row["Placa"])
+            
+            sel_op = c_o.selectbox(
+                f"Op Jueves {r_num}",
+                options=ops_disponibles,
+                index=idx_op,
+                key=f"adm_op_j_{r_num}",
+                label_visibility="collapsed"
+            )
+            
+            op_final_j = sel_op
+            if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
+                op_ext_j = st.text_input(
+                    f"Nuevo operador {row['Vehículo']}:",
+                    key=f"adm_ext_op_j_{r_num}",
+                    placeholder="NOMBRE COMPLETO"
+                )
+                op_final_j = op_ext_j.strip().upper()
+            
+            inp_imp = c_i.number_input(
+                f"Imp Jueves {r_num}",
+                value=float(row["Importe"]),
+                step=50.0,
+                min_value=0.0,
+                key=f"adm_imp_j_{r_num}",
+                format="%.2f",
+                label_visibility="collapsed"
+            )
+            
+            nuevos_jueves.append({
+                "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
+                "Placa": row["Placa"], "Actividad": row["Actividad"],
+                "Operador": op_final_j, "Importe": inp_imp, "Real": row["Real"]
             })
             
-        df_saldos_area = pd.DataFrame(filas_saldos_area)
-        st.dataframe(
-            df_saldos_area,
+        df_jueves_edit = pd.DataFrame(nuevos_jueves)
+        
+        btn_guardar_jueves = st.form_submit_button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True)
+        if btn_guardar_jueves:
+            with st.spinner("Guardando en pestaña 'jueves'..."):
+                exito = enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                if exito:
+                    st.success("✅ ¡Cargas del Jueves guardadas y sincronizadas!")
+                    st.rerun()
+                else:
+                    st.error("Error al guardar en Google Sheets.")
+
+    with st.expander("🗑️ Quitar Carga Específica del JUEVES (Regresar Saldo al Presupuesto)"):
+        c_delj1, c_delj2 = st.columns([3, 1])
+        with c_delj1:
+            veh_borrar_j = st.selectbox(
+                "Selecciona el vehículo cuya carga deseas eliminar:",
+                options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
+                key="sel_del_jueves"
+            )
+        with c_delj2:
+            st.write("")
+            if st.button("❌ Quitar Carga", key="btn_del_jueves", use_container_width=True):
+                r_target = int(veh_borrar_j.split(" - ")[0].replace("Fila ", ""))
+                df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Operador"] = ""
+                df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Importe"] = 0.0
+                enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
+                st.rerun()
+
+    st.markdown("---")
+    bloqueo_j, det_j = verificar_bloqueo_descarga(df_jueves_edit, df_lunes, presupuestos_actuales)
+    if bloqueo_j:
+        st.error("⛔ **DESCARGA DE ARCHIVOS BLOQUEADA POR EXCEDENTE DE PRESUPUESTO**")
+        st.warning("Revisa las siguientes unidades:\n\n" + "\n".join(det_j) + "\n\n💡 *Asigna comodín o transfiere presupuesto en la Pestaña 1 para desbloquear.*")
+    else:
+        st.success("✅ Presupuestos en orden. Formatos listos para descarga.")
+
+    df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe"] > 0].copy()
+    nombre_excel_j = obtener_nombre_archivo_oficial("SOLICITUD", "Jueves", f_prog, "xlsx")
+    nombre_pdf_j = obtener_nombre_archivo_oficial("OFICIO", "Jueves", f_prog, "pdf")
+    
+    excel_jueves = generar_excel_oficial_formato(df_jueves_edit, "Jueves", f_elab, f_prog) if not bloqueo_j else b""
+    pdf_jueves = generar_pdf_oficial(df_solo_jueves, "Jueves", f_elab, f_prog) if not bloqueo_j else b""
+    
+    col_dj1, col_dj2 = st.columns(2)
+    with col_dj1:
+        st.download_button(
+            label=f"📥 Descargar Formato Excel ({nombre_excel_j})",
+            data=excel_jueves,
+            file_name=nombre_excel_j,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Presupuesto Base": st.column_config.NumberColumn(format="$%.2f"),
-                "Presupuesto Semanal Autorizado": st.column_config.NumberColumn(format="$%.2f"),
-                "Carga Lunes": st.column_config.NumberColumn(format="$%.2f"),
-                "Carga Jueves": st.column_config.NumberColumn(format="$%.2f"),
-                "Total Solicitado": st.column_config.NumberColumn(format="$%.2f"),
-                "Saldo Disponible Restante": st.column_config.NumberColumn(format="$%.2f"),
-            }
+            disabled=bloqueo_j
+        )
+    with col_dj2:
+        st.download_button(
+            label=f"📄 Descargar Oficio PDF ({nombre_pdf_j})",
+            data=pdf_jueves,
+            file_name=nombre_pdf_j,
+            mime="application/pdf",
+            use_container_width=True,
+            disabled=bloqueo_j
         )
 
-        st.divider()
-        st.markdown("##### 🔀 Transferir Presupuesto entre Solicitantes y Asignar Comodín")
-        col_t1, col_t2 = st.columns(2)
-        
-        with col_t1:
-            with st.container(border=True):
-                st.markdown("🎁 **Bolsa Comodín**")
-                asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
-                total_comodin_usado = sum(asig_comodin_dict.values())
-                comodin_disponible = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_usado)
-                st.caption(f"Disponible en bolsa: **${comodin_disponible:,.2f}**")
-                
-                destinatario_comodin = st.selectbox("Asignar Comodín a:", list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys()), key="sel_comodin")
-                monto_comodin_add = st.number_input("Monto Extra ($)", min_value=0.0, max_value=float(comodin_disponible), step=50.0, value=0.0, key="inp_comodin")
-                
-                if st.button("➕ Asignar de Comodín", use_container_width=True):
-                    if monto_comodin_add > 0:
-                        asig_act = cfg_actual.get("asignacion_comodin", {})
-                        asig_act[destinatario_comodin] = asig_act.get(destinatario_comodin, 0.0) + monto_comodin_add
-                        cfg_actual["asignacion_comodin"] = asig_act
-                        guardar_config(cfg_actual)
-                        st.toast(f"Se asignaron ${monto_comodin_add:,.2f} a {destinatario_comodin}", icon="🎁")
-                        st.rerun()
-
-        with col_t2:
-            with st.container(border=True):
-                st.markdown("🤝 **Transferencia Directa entre Áreas**")
-                lista_solicitantes = list(PRESUPUESTO_BASE_POR_SOLICITANTE.keys())
-                
-                c_origen, c_destino = st.columns(2)
-                with c_origen:
-                    sol_origen = st.selectbox("Ceder de (Origen):", lista_solicitantes, key="sel_origen_trans")
-                with c_destino:
-                    destinatarios_posibles = [s for s in lista_solicitantes if s != sol_origen]
-                    sol_destino = st.selectbox("Transferir a (Destino):", destinatarios_posibles, key="sel_destino_trans")
-                
-                saldo_libre_origen = float(presupuestos_actuales.get(sol_origen, 0.0))
-                st.caption(f"Presupuesto actual disponible en {sol_origen}: **${saldo_libre_origen:,.2f}**")
-                
-                monto_transferir = st.number_input("Monto a Transferir ($)", min_value=0.0, max_value=saldo_libre_origen, step=50.0, value=0.0, key="inp_monto_trans")
-                
-                if st.button("🔄 Ejecutar Transferencia", use_container_width=True):
-                    if monto_transferir > 0:
-                        trans_list = cfg_actual.get("transferencias_libres", [])
-                        trans_list.append({
-                            "origen": sol_origen,
-                            "destino": sol_destino,
-                            "monto": monto_transferir
-                        })
-                        cfg_actual["transferencias_libres"] = trans_list
-                        guardar_config(cfg_actual)
-                        st.toast(f"Transferidos ${monto_transferir:,.2f} de {sol_origen} a {sol_destino}", icon="🤝")
-                        st.rerun()
-
-        if cfg_actual.get("asignacion_comodin") or cfg_actual.get("transferencias_libres") or cfg_actual.get("cesion_lian"):
-            if st.button("🔄 Restablecer Todas las Transferencias a Valores Base", type="secondary", use_container_width=True):
-                cfg_actual["asignacion_comodin"] = {}
-                cfg_actual["transferencias_libres"] = []
-                cfg_actual["cesion_lian"] = {}
-                guardar_config(cfg_actual)
-                st.toast("Presupuestos restablecidos a los originales.", icon="🔄")
-                st.rerun()
-
-    # 2. CARGA LUNES
-    with tab_lunes:
-        st.markdown("##### 🚗 Solicitud Oficial de Carga del LUNES (Pestaña 'lunes')")
-        st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
-        
-        with st.form("form_admin_lunes_exclusivo"):
-            nuevos_lunes = []
-            
-            c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
-            c_h1.markdown("**Área / Solicitante**")
-            c_h2.markdown("**Vehículo**")
-            c_h3.markdown("**Placa**")
-            c_h4.markdown("**Operador Autorizado**")
-            c_h5.markdown("**Importe ($)**")
-            st.divider()
-
-            for idx, row in df_lunes.iterrows():
-                r_num = int(row["row"])
-                sol = row["Solicitante"]
-                ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
-                
-                val_act = limpiar_texto_operador(row["Operador"])
-                if val_act and val_act not in ops_disponibles:
-                    ops_disponibles.append(val_act)
-                ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
-                    
-                idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
-                
-                c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
-                c_a.write(sol)
-                c_v.write(row["Vehículo"])
-                c_p.code(row["Placa"])
-                
-                sel_op = c_o.selectbox(
-                    f"Op Lunes {r_num}",
-                    options=ops_disponibles,
-                    index=idx_op,
-                    key=f"adm_op_l_{r_num}",
-                    label_visibility="collapsed"
-                )
-                
-                op_final_l = sel_op
-                if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
-                    op_ext_l = st.text_input(
-                        f"Nuevo operador {row['Vehículo']}:",
-                        key=f"adm_ext_op_l_{r_num}",
-                        placeholder="NOMBRE COMPLETO"
-                    )
-                    op_final_l = op_ext_l.strip().upper()
-                
-                inp_imp = c_i.number_input(
-                    f"Imp Lunes {r_num}",
-                    value=float(row["Importe"]),
-                    step=50.0,
-                    min_value=0.0,
-                    key=f"adm_imp_l_{r_num}",
-                    format="%.2f",
-                    label_visibility="collapsed"
-                )
-                
-                nuevos_lunes.append({
-                    "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
-                    "Placa": row["Placa"], "Actividad": row["Actividad"],
-                    "Operador": op_final_l, "Importe": inp_imp, "Real": row["Real"]
-                })
-                
-            df_lunes_edit = pd.DataFrame(nuevos_lunes)
-            
-            btn_guardar_lunes = st.form_submit_button("💾 Guardar Cambios de LUNES en Google Sheets", type="primary", use_container_width=True)
-            if btn_guardar_lunes:
-                with st.spinner("Guardando en pestaña 'lunes'..."):
-                    exito = enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    if exito:
-                        st.success("✅ ¡Cargas del Lunes guardadas y sincronizadas!")
-                        st.rerun()
-                    else:
-                        st.error("Error al guardar en Google Sheets.")
-
-        with st.expander("🗑️ Quitar Carga Específica del LUNES (Regresar Saldo al Presupuesto)"):
-            c_del1, c_del2 = st.columns([3, 1])
-            with c_del1:
-                veh_borrar_l = st.selectbox(
-                    "Selecciona el vehículo cuya carga deseas eliminar:",
-                    options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
-                    key="sel_del_lunes"
-                )
-            with c_del2:
-                st.write("")
-                if st.button("❌ Quitar Carga", key="btn_del_lunes", use_container_width=True):
-                    r_target = int(veh_borrar_l.split(" - ")[0].replace("Fila ", ""))
-                    df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Operador"] = ""
-                    df_lunes_edit.loc[df_lunes_edit["row"] == r_target, "Importe"] = 0.0
-                    enviar_datos_hoja(df_lunes_edit, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
-                    st.rerun()
-
-        st.markdown("---")
-        df_solo_lunes = df_lunes_edit[df_lunes_edit["Importe"] > 0].copy()
-        
-        nombre_excel_l = obtener_nombre_archivo_oficial("SOLICITUD", "Lunes", f_prog, "xlsx")
-        nombre_pdf_l = obtener_nombre_archivo_oficial("OFICIO", "Lunes", f_prog, "pdf")
-        
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            excel_lunes = generar_excel_oficial_formato(df_lunes_edit, "Lunes", f_elab, f_prog)
-            st.download_button(
-                label=f"📥 Descargar Formato Excel ({nombre_excel_l})",
-                data=excel_lunes,
-                file_name=nombre_excel_l,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        with col_dl2:
-            pdf_lunes = generar_pdf_oficial(df_solo_lunes, "Lunes", f_elab, f_prog)
-            st.download_button(
-                label=f"📄 Descargar Oficio PDF ({nombre_pdf_l})",
-                data=pdf_lunes,
-                file_name=nombre_pdf_l,
-                mime="application/pdf",
-                use_container_width=True
-            )
-
-    # 3. CARGA JUEVES
-    with tab_jueves:
-        st.markdown("##### 🚗 Solicitud Oficial de Carga del JUEVES (Pestaña 'jueves')")
-        st.caption("Selecciona el operador o usa el botón rojo para quitar la carga y liberar el presupuesto:")
-        
-        with st.form("form_admin_jueves_exclusivo"):
-            nuevos_jueves = []
-            
-            c_jh1, c_jh2, c_jh3, c_jh4, c_jh5 = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
-            c_jh1.markdown("**Área / Solicitante**")
-            c_jh2.markdown("**Vehículo**")
-            c_jh3.markdown("**Placa**")
-            c_jh4.markdown("**Operador Autorizado**")
-            c_jh5.markdown("**Importe ($)**")
-            st.divider()
-
-            for idx, row in df_jueves.iterrows():
-                r_num = int(row["row"])
-                sol = row["Solicitante"]
-                ops_disponibles = [""] + OPERADORES_POR_SOLICITANTE.get(sol, [])
-                
-                val_act = limpiar_texto_operador(row["Operador"])
-                if val_act and val_act not in ops_disponibles:
-                    ops_disponibles.append(val_act)
-                ops_disponibles.append("➕ OTRO (ESCRIBIR NOMBRE)")
-                    
-                idx_op = ops_disponibles.index(val_act) if val_act in ops_disponibles else 0
-                
-                c_a, c_v, c_p, c_o, c_i = st.columns([1.6, 1.3, 1.0, 2.0, 1.1])
-                c_a.write(sol)
-                c_v.write(row["Vehículo"])
-                c_p.code(row["Placa"])
-                
-                sel_op = c_o.selectbox(
-                    f"Op Jueves {r_num}",
-                    options=ops_disponibles,
-                    index=idx_op,
-                    key=f"adm_op_j_{r_num}",
-                    label_visibility="collapsed"
-                )
-                
-                op_final_j = sel_op
-                if sel_op == "➕ OTRO (ESCRIBIR NOMBRE)":
-                    op_ext_j = st.text_input(
-                        f"Nuevo operador {row['Vehículo']}:",
-                        key=f"adm_ext_op_j_{r_num}",
-                        placeholder="NOMBRE COMPLETO"
-                    )
-                    op_final_j = op_ext_j.strip().upper()
-                
-                inp_imp = c_i.number_input(
-                    f"Imp Jueves {r_num}",
-                    value=float(row["Importe"]),
-                    step=50.0,
-                    min_value=0.0,
-                    key=f"adm_imp_j_{r_num}",
-                    format="%.2f",
-                    label_visibility="collapsed"
-                )
-                
-                nuevos_jueves.append({
-                    "row": r_num, "Solicitante": sol, "Vehículo": row["Vehículo"],
-                    "Placa": row["Placa"], "Actividad": row["Actividad"],
-                    "Operador": op_final_j, "Importe": inp_imp, "Real": row["Real"]
-                })
-                
-            df_jueves_edit = pd.DataFrame(nuevos_jueves)
-            
-            btn_guardar_jueves = st.form_submit_button("💾 Guardar Cambios de JUEVES en Google Sheets", type="primary", use_container_width=True)
-            if btn_guardar_jueves:
-                with st.spinner("Guardando en pestaña 'jueves'..."):
-                    exito = enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    if exito:
-                        st.success("✅ ¡Cargas del Jueves guardadas y sincronizadas!")
-                        st.rerun()
-                    else:
-                        st.error("Error al guardar en Google Sheets.")
-
-        with st.expander("🗑️ Quitar Carga Específica del JUEVES (Regresar Saldo al Presupuesto)"):
-            c_delj1, c_delj2 = st.columns([3, 1])
-            with c_delj1:
-                veh_borrar_j = st.selectbox(
-                    "Selecciona el vehículo cuya carga deseas eliminar:",
-                    options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
-                    key="sel_del_jueves"
-                )
-            with c_delj2:
-                st.write("")
-                if st.button("❌ Quitar Carga", key="btn_del_jueves", use_container_width=True):
-                    r_target = int(veh_borrar_j.split(" - ")[0].replace("Fila ", ""))
-                    df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Operador"] = ""
-                    df_jueves_edit.loc[df_jueves_edit["row"] == r_target, "Importe"] = 0.0
-                    enviar_datos_hoja(df_jueves_edit, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.toast(f"Carga de la Fila {r_target} eliminada. Saldo reintegrado.", icon="✅")
-                    st.rerun()
-
-        st.markdown("---")
-        df_solo_jueves = df_jueves_edit[df_jueves_edit["Importe"] > 0].copy()
-        
-        nombre_excel_j = obtener_nombre_archivo_oficial("SOLICITUD", "Jueves", f_prog, "xlsx")
-        nombre_pdf_j = obtener_nombre_archivo_oficial("OFICIO", "Jueves", f_prog, "pdf")
-        
-        col_dj1, col_dj2 = st.columns(2)
-        with col_dj1:
-            excel_jueves = generar_excel_oficial_formato(df_jueves_edit, "Jueves", f_elab, f_prog)
-            st.download_button(
-                label=f"📥 Descargar Formato Excel ({nombre_excel_j})",
-                data=excel_jueves,
-                file_name=nombre_excel_j,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        with col_dj2:
-            pdf_jueves = generar_pdf_oficial(df_solo_jueves, "Jueves", f_elab, f_prog)
-            st.download_button(
-                label=f"📄 Descargar Oficio PDF ({nombre_pdf_j})",
-                data=pdf_jueves,
-                file_name=nombre_pdf_j,
-                mime="application/pdf",
-                use_container_width=True
-            )
-
-    # 4. MI CARGA (LIAN / FRANCISCO ALONZO)
-    with tab_mi_carga:
-        st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
-        sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
-        sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
-        presupuesto_lian_efectivo = presupuestos_actuales["LIAN"]
-        
-        if not sub_l_lian.empty:
-            row_l_lian = sub_l_lian.iloc[0]
-            row_j_lian = sub_j_lian.iloc[0]
-            
-            with st.container(border=True):
-                st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Autorizado: **${presupuesto_lian_efectivo:,.2f}**")
-                
-                c_ml1, c_ml2 = st.columns(2)
-                with c_ml1:
-                    st.markdown("🗓️ **Carga del Lunes**")
-                    op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
-                    op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                    
-                    val_l_actual = float(row_l_lian["Importe"])
-                    max_l = float(presupuesto_lian_efectivo)
-                    val_l_seguro = max(0.0, min(val_l_actual, max_l))
-                    
-                    imp_l_sel = st.number_input("Monto Lunes ($)", value=val_l_seguro, step=50.0, min_value=0.0, max_value=max_l, key="ml_imp_l")
-                
-                with c_ml2:
-                    st.markdown("🗓️ **Carga del Jueves**")
-                    disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
-                    op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
-                    op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                    
-                    val_j_actual = float(row_j_lian["Importe"])
-                    max_j = float(disponible_jueves_lian)
-                    val_j_seguro = max(0.0, min(val_j_actual, max_j))
-                    
-                    imp_j_sel = st.number_input("Monto Jueves ($)", value=val_j_seguro, step=50.0, min_value=0.0, max_value=max_j, key="ml_imp_j")
-                
-                if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
-                    df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
-                    df_mi_l["Operador"] = op_l_sel
-                    df_mi_l["Importe"] = imp_l_sel
-                    enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    
-                    df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
-                    df_mi_j["Operador"] = op_j_sel
-                    df_mi_j["Importe"] = imp_j_sel
-                    enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                    st.success("✅ Tu carga fue registrada correctamente.")
-                    st.rerun()
-
-    # 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
-    with tab_auditoria:
-        st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
-        st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
-        
-        c_aud_l, c_aud_j = st.columns(2)
-        
-        # Lista estricta de columnas visibles: se excluye 'Base', 'row', etc.
-        cols_visibles_aud = ["Vehículo", "Placa", "Importe", "Real"]
-        
-        with c_aud_l:
-            st.markdown("📋 **Comprobación Real LUNES**")
-            df_aud_l_edit = st.data_editor(
-                df_lunes[cols_visibles_aud].copy(),
-                use_container_width=True,
-                height=450,
-                disabled=["Vehículo", "Placa", "Importe"],
-                column_config={
-                    "Vehículo": st.column_config.TextColumn("Vehículo"),
-                    "Placa": st.column_config.TextColumn("Placa"),
-                    "Importe": st.column_config.NumberColumn("Sol. Lunes ($)", format="$%.2f"),
-                    "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                },
-                hide_index=True,
-                key="aud_editor_lunes_clean_v9"
-            )
-            
-            if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
-                df_l_guardar = df_lunes.copy()
-                df_l_guardar["Real"] = df_aud_l_edit["Real"]
-                exito = enviar_datos_hoja(df_l_guardar, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
-                if exito:
-                    st.success("✅ Real del Lunes guardado.")
-
-        with c_aud_j:
-            st.markdown("📋 **Comprobación Real JUEVES**")
-            df_aud_j_edit = st.data_editor(
-                df_jueves[cols_visibles_aud].copy(),
-                use_container_width=True,
-                height=450,
-                disabled=["Vehículo", "Placa", "Importe"],
-                column_config={
-                    "Vehículo": st.column_config.TextColumn("Vehículo"),
-                    "Placa": st.column_config.TextColumn("Placa"),
-                    "Importe": st.column_config.NumberColumn("Sol. Jueves ($)", format="$%.2f"),
-                    "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
-                },
-                hide_index=True,
-                key="aud_editor_jueves_clean_v9"
-            )
-            
-            if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
-                df_j_guardar = df_jueves.copy()
-                df_j_guardar["Real"] = df_aud_j_edit["Real"]
-                exito = enviar_datos_hoja(df_j_guardar, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
-                if exito:
-                    st.success("✅ Real del Jueves guardado.")
-
-        total_sol_semana = df_aud_l_edit["Importe"].sum() + df_aud_j_edit["Importe"].sum()
-        total_real_semana = df_aud_l_edit["Real"].sum() + df_aud_j_edit["Real"].sum()
-        ahorro_semana = total_sol_semana - total_real_semana
-        saldo_libre_global = PRESUPUESTO_GLOBAL - total_real_semana
-        
-        st.divider()
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Total Solicitado Semana", f"${total_sol_semana:,.2f}")
-        r2.metric("Total Real Comprobado", f"${total_real_semana:,.2f}")
-        r3.metric("Ahorro / Remanente", f"${ahorro_semana:,.2f}", delta_color="normal")
-        r4.metric("Saldo Libre Total", f"${saldo_libre_global:,.2f}", delta_color="normal")
-        
-        st.write("")
-        if st.button("💾 Archivar Balance en Pestaña 'historico'", type="primary", use_container_width=True):
-            with st.spinner("Archivando en pestaña 'historico'..."):
-                detalles_txt_lista = []
-                for r_num in sorted(MAPEO_SOLICITANTES.keys()):
-                    r_l = df_lunes[df_lunes["row"] == r_num].iloc[0]
-                    r_j = df_jueves[df_jueves["row"] == r_num].iloc[0]
-                    tot_u = r_l["Real"] + r_j["Real"]
-                    if tot_u > 0:
-                        detalles_txt_lista.append(f"{r_l['Vehículo']} - ${tot_u:,.2f}")
-                detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas reales"
-                
-                folio_generado = f"SEMANA-{f_prog.strftime('%Y%m%d')}"
-                historico_payload = {
-                    "folio": folio_generado,
-                    "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
-                    "fecha_prog": f_prog.strftime("%d/%m/%Y"),
-                    "fecha_registro": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
-                    "total_solicitado": float(total_sol_semana),
-                    "total_ejercido": float(total_real_semana),
-                    "ahorro": float(ahorro_semana),
-                    "detalle_unidades": detalles_txt
-                }
-                
-                exito = enviar_datos_hoja(df_jueves, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
-                if exito:
-                    st.success(f"✅ ¡Folio **{folio_generado}** archivado en 'historico'!")
-                else:
-                    st.error("Error al archivar.")
-
-    # 6. MODO PRUEBAS Y REESTABLECIMIENTO DE VIERNES
-    with tab_mantenimiento:
-        st.markdown("##### 🛠️ Mantenimiento y Cierre de Viernes")
+# 4. MI CARGA (LIAN / FRANCISCO ALONZO)
+with tab_mi_carga:
+    st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
+    sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
+    sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
+    presupuesto_lian_efectivo = presupuestos_actuales["LIAN"]
+    
+    if not sub_l_lian.empty:
+        row_l_lian = sub_l_lian.iloc[0]
+        row_j_lian = sub_j_lian.iloc[0]
         
         with st.container(border=True):
-            st.subheader("🧹 Reestablecer Todo a $0.00 (Cada Viernes)")
-            st.write(
-                "Usa este botón los **viernes** tras guardar la auditoría semanal. Limpiará ambas pestañas (`lunes` y `jueves`) a **$0.00** para arrancar la siguiente semana en ceros y con presupuestos completos."
-            )
+            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Autorizado: **${presupuesto_lian_efectivo:,.2f}**")
             
-            if st.button("🗑️ Reestablecer Todo para la Próxima Semana", type="secondary", use_container_width=True):
-                df_l_limpio = df_lunes.copy()
-                df_l_limpio["Operador"] = ""
-                df_l_limpio["Importe"] = 0.0
-                df_l_limpio["Real"] = 0.0
+            c_ml1, c_ml2 = st.columns(2)
+            with c_ml1:
+                st.markdown("🗓️ **Carga del Lunes**")
+                op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
+                op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
                 
-                df_j_limpio = df_jueves.copy()
-                df_j_limpio["Operador"] = ""
-                df_j_limpio["Importe"] = 0.0
-                df_j_limpio["Real"] = 0.0
+                val_l_actual = float(row_l_lian["Importe"])
+                max_l = float(presupuesto_lian_efectivo)
+                val_l_seguro = max(0.0, min(val_l_actual, max_l))
                 
-                enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
+                imp_l_sel = st.number_input("Monto Lunes ($)", value=val_l_seguro, step=50.0, min_value=0.0, max_value=max_l, key="ml_imp_l")
+            
+            with c_ml2:
+                st.markdown("🗓️ **Carga del Jueves**")
+                disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
+                op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
+                op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
                 
-                cfg_actual["dia_activo"] = "Lunes"
-                cfg_actual["asignacion_comodin"] = {}
-                cfg_actual["transferencias_libres"] = []
-                cfg_actual["cesion_lian"] = {}
-                guardar_config(cfg_actual)
-                st.success("✅ ¡Pestañas 'lunes' y 'jueves' reiniciadas a $0.00 y transferencias restablecidas!")
+                val_j_actual = float(row_j_lian["Importe"])
+                max_j = float(disponible_jueves_lian)
+                val_j_seguro = max(0.0, min(val_j_actual, max_j))
+                
+                imp_j_sel = st.number_input("Monto Jueves ($)", value=val_j_seguro, step=50.0, min_value=0.0, max_value=max_j, key="ml_imp_j")
+            
+            if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
+                df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
+                df_mi_l["Operador"] = op_l_sel
+                df_mi_l["Importe"] = imp_l_sel
+                enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                
+                df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
+                df_mi_j["Operador"] = op_j_sel
+                df_mi_j["Importe"] = imp_j_sel
+                enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ Tu carga fue registrada correctamente.")
                 st.rerun()
 
-        with st.container(border=True):
-            st.subheader("🧪 Probar Vista Móvil o de Captura")
-            usuarios_para_test = [u for u in credenciales_actuales.keys() if u != "LIAN"]
-            solicitante_a_testear = st.selectbox("Selecciona al usuario a simular:", usuarios_para_test)
+# 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
+with tab_auditoria:
+    st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
+    st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
+    
+    c_aud_l, c_aud_j = st.columns(2)
+    cols_visibles_aud = ["Vehículo", "Placa", "Importe", "Real"]
+    
+    with c_aud_l:
+        st.markdown("📋 **Comprobación Real LUNES**")
+        df_aud_l_edit = st.data_editor(
+            df_lunes[cols_visibles_aud].copy(),
+            use_container_width=True,
+            height=450,
+            disabled=["Vehículo", "Placa", "Importe"],
+            column_config={
+                "Vehículo": st.column_config.TextColumn("Vehículo"),
+                "Placa": st.column_config.TextColumn("Placa"),
+                "Importe": st.column_config.NumberColumn("Sol. Lunes ($)", format="$%.2f"),
+                "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
+            },
+            hide_index=True,
+            key="aud_editor_lunes_clean_v10"
+        )
+        
+        if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
+            df_l_guardar = df_lunes.copy()
+            df_l_guardar["Real"] = df_aud_l_edit["Real"]
+            exito = enviar_datos_hoja(df_l_guardar, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
+            if exito:
+                st.success("✅ Real del Lunes guardado.")
+
+    with c_aud_j:
+        st.markdown("📋 **Comprobación Real JUEVES**")
+        df_aud_j_edit = st.data_editor(
+            df_jueves[cols_visibles_aud].copy(),
+            use_container_width=True,
+            height=450,
+            disabled=["Vehículo", "Placa", "Importe"],
+            column_config={
+                "Vehículo": st.column_config.TextColumn("Vehículo"),
+                "Placa": st.column_config.TextColumn("Placa"),
+                "Importe": st.column_config.NumberColumn("Sol. Jueves ($)", format="$%.2f"),
+                "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
+            },
+            hide_index=True,
+            key="aud_editor_jueves_clean_v10"
+        )
+        
+        if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
+            df_j_guardar = df_jueves.copy()
+            df_j_guardar["Real"] = df_aud_j_edit["Real"]
+            exito = enviar_datos_hoja(df_j_guardar, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
+            if exito:
+                st.success("✅ Real del Jueves guardado.")
+
+    total_sol_semana = df_aud_l_edit["Importe"].sum() + df_aud_j_edit["Importe"].sum()
+    total_real_semana = df_aud_l_edit["Real"].sum() + df_aud_j_edit["Real"].sum()
+    ahorro_semana = total_sol_semana - total_real_semana
+    saldo_libre_global = PRESUPUESTO_GLOBAL - total_real_semana
+    
+    st.divider()
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Total Solicitado Semana", f"${total_sol_semana:,.2f}")
+    r2.metric("Total Real Comprobado", f"${total_real_semana:,.2f}")
+    r3.metric("Ahorro / Remanente", f"${ahorro_semana:,.2f}", delta_color="normal")
+    r4.metric("Saldo Libre Total", f"${saldo_libre_global:,.2f}", delta_color="normal")
+    
+    st.write("")
+    if st.button("💾 Archivar Balance en Pestaña 'historico'", type="primary", use_container_width=True):
+        with st.spinner("Archivando en pestaña 'historico'..."):
+            detalles_txt_lista = []
+            for r_num in sorted(MAPEO_SOLICITANTES.keys()):
+                r_l = df_lunes[df_lunes["row"] == r_num].iloc[0]
+                r_j = df_jueves[df_jueves["row"] == r_num].iloc[0]
+                tot_u = r_l["Real"] + r_j["Real"]
+                if tot_u > 0:
+                    detalles_txt_lista.append(f"{r_l['Vehículo']} - ${tot_u:,.2f}")
+            detalles_txt = "; ".join(detalles_txt_lista) if detalles_txt_lista else "Sin cargas reales"
             
-            if st.button("👁️ Entrar a Modo Simulación", type="secondary", use_container_width=True):
-                st.session_state.vista_simulada = solicitante_a_testear
-                st.rerun()
+            folio_generado = f"SEMANA-{f_prog.strftime('%Y%m%d')}"
+            historico_payload = {
+                "folio": folio_generado,
+                "fecha_elaboro": f_elab.strftime("%d/%m/%Y"),
+                "fecha_prog": f_prog.strftime("%d/%m/%Y"),
+                "fecha_registro": datetime.now(ZONA_HORARIA).strftime("%d/%m/%Y %I:%M %p"),
+                "total_solicitado": float(total_sol_semana),
+                "total_ejercido": float(total_real_semana),
+                "ahorro": float(ahorro_semana),
+                "detalle_unidades": detalles_txt
+            }
+            
+            exito = enviar_datos_hoja(df_jueves, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog, historico_obj=historico_payload)
+            if exito:
+                st.success(f"✅ ¡Folio **{folio_generado}** archivado en 'historico'!")
+            else:
+                st.error("Error al archivar.")
+
+# 6. CIERRE DE VIERNES
+with tab_mantenimiento:
+    st.markdown("##### 🛠️ Mantenimiento y Cierre de Viernes")
+    
+    with st.container(border=True):
+        st.subheader("🧹 Reestablecer Todo a $0.00 (Cada Viernes)")
+        st.write(
+            "Usa este botón los **viernes** tras guardar la auditoría semanal. Limpiará ambas pestañas (`lunes` y `jueves`) a **$0.00**, así como el comodín y las transferencias registradas, para arrancar la siguiente semana en ceros."
+        )
+        
+        if st.button("🗑️ Reestablecer Todo para la Próxima Semana", type="secondary", use_container_width=True):
+            df_l_limpio = df_lunes.copy()
+            df_l_limpio["Operador"] = ""
+            df_l_limpio["Importe"] = 0.0
+            df_l_limpio["Real"] = 0.0
+            
+            df_j_limpio = df_jueves.copy()
+            df_j_limpio["Operador"] = ""
+            df_j_limpio["Importe"] = 0.0
+            df_j_limpio["Real"] = 0.0
+            
+            enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+            enviar_datos_hoja(df_l_limpio, hoja="lunes", tipo="real", f_elab=f_elab, f_prog=f_prog)
+            enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+            enviar_datos_hoja(df_j_limpio, hoja="jueves", tipo="real", f_elab=f_elab, f_prog=f_prog)
+            
+            cfg_actual["asignacion_comodin"] = {}
+            cfg_actual["transferencias_libres"] = []
+            cfg_actual["historial_movimientos"] = []
+            cfg_actual["cesion_lian"] = {}
+            guardar_config(cfg_actual)
+            st.success("✅ ¡Pestañas 'lunes' y 'jueves' reiniciadas a $0.00 y transferencias restablecidas!")
+            st.rerun()
