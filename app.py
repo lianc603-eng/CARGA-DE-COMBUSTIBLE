@@ -15,8 +15,8 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 3800.00
-BOLSA_COMODIN_TOTAL = 200.00
+PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
+BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -95,7 +95,6 @@ def leer_config():
                 cfg_defecto.update(c)
         except Exception:
             pass
-    # Asegurar que solo exista LIAN en passwords
     pwds_limpios = {"LIAN": cfg_defecto.get("passwords", {}).get("LIAN", "admin123")}
     cfg_defecto["passwords"] = pwds_limpios
     if "historial_movimientos" not in cfg_defecto:
@@ -448,6 +447,7 @@ def verificar_bloqueo_descarga(df_dia_edit, df_otro_dia, presupuestos_efectivos)
             )
     tot_global = df_dia_edit["Importe"].sum() + df_otro_dia["Importe"].sum()
     if tot_global > PRESUPUESTO_GLOBAL:
+        bloqueo_true = True
         bloqueado = True
         diff_g = tot_global - PRESUPUESTO_GLOBAL
         mensajes.append(
@@ -624,23 +624,21 @@ with tab_saldos:
     st.divider()
     st.markdown("##### 🔀 Asignar Comodín y Transferir Presupuesto entre Solicitantes")
     
-    # Cálculo estricto de Comodín Disponible:
-    # Descuenta lo ya asignado manualmente Y verifica que no supere el saldo global libre
+    # Cálculo estricto de Comodín Disponible ($1,000.00 Totales)
     asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
     total_comodin_asignado = sum(asig_comodin_dict.values())
     comodin_restante_bolsa = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_asignado)
-    # Tampoco se puede asignar comodín si el gasto de lunes/jueves ya agotó el presupuesto global de $3,800
     comodin_real_disponible = max(0.0, min(comodin_restante_bolsa, max(0.0, saldo_global_semana + excedentes_sin_cubrir)))
 
     col_t1, col_t2 = st.columns(2)
     
     with col_t1:
         with st.container(border=True):
-            st.markdown("🎁 **Bolsa Comodín ($200.00 Semanales)**")
+            st.markdown(f"🎁 **Bolsa Comodín (${BOLSA_COMODIN_TOTAL:,.2f} Semanales)**")
             if comodin_real_disponible > 0:
                 st.info(
                     f"💰 **Saldo Comodín Disponible para Asignar:** `${comodin_real_disponible:,.2f}`\n\n"
-                    f"*(Ya asignado en la semana: `${total_comodin_asignado:,.2f}`)*"
+                    f"*(Ya asignado en la semana: `${total_comodin_asignado:,.2f}` de `${BOLSA_COMODIN_TOTAL:,.2f}`)*"
                 )
             else:
                 st.error(
@@ -707,7 +705,6 @@ with tab_saldos:
                 destinatarios_posibles = [s for s in lista_solicitantes if s != sol_origen]
                 sol_destino = st.selectbox("Transferir a (Destino):", destinatarios_posibles, key="sel_destino_trans")
             
-            # Saldo REAL restante del origen (Autorizado - Gastado Lunes - Gastado Jueves)
             saldo_restante_origen = max(0.0, float(saldos_restantes_por_solicitante.get(sol_origen, 0.0)))
             saldo_restante_destino = float(saldos_restantes_por_solicitante.get(sol_destino, 0.0))
             
@@ -1119,7 +1116,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_lunes_clean_v10"
+            key="aud_editor_lunes_clean_v12"
         )
         
         if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1143,7 +1140,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_jueves_clean_v10"
+            key="aud_editor_jueves_clean_v12"
         )
         
         if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
