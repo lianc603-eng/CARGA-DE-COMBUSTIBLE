@@ -15,8 +15,8 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
-BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
+PRESUPUESTO_GLOBAL = 4300.00  # $4,100.00 Base + $200.00 Comodín
+BOLSA_COMODIN_TOTAL = 200.00  # Ajustado a $200.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -29,7 +29,7 @@ PRESUPUESTO_BASE_POR_SOLICITANTE = {
     "NOEL CHAN": 850.00,
     "LIAN": 150.00,
     "QUEVEDO": 1500.00,
-    "RENAN/HELDER": 500.00,
+    "RENAN/HELDER": 1000.00,
 }
 
 OPERADORES_POR_SOLICITANTE = {
