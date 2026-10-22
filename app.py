@@ -15,8 +15,8 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4300.00  # $4,100.00 Base + $200.00 Comodín
-BOLSA_COMODIN_TOTAL = 200.00  # Ajustado a $200.00 totales
+PRESUPUESTO_GLOBAL = 4300.00  # $4,100.00 Base + $350.00 Comodín
+BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $200.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -27,7 +27,6 @@ PRESUPUESTO_BASE_POR_SOLICITANTE = {
     "PEREZ MAZIN CARLOS EDUARDO": 200.00,
     "DE LA CRUZ PEREZ WILLIAN ARLEY": 200.00,
     "NOEL CHAN": 850.00,
-    "LIAN": 150.00,
     "QUEVEDO": 1500.00,
     "RENAN/HELDER": 1000.00,
 }
@@ -37,7 +36,6 @@ OPERADORES_POR_SOLICITANTE = {
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
     "DE LA CRUZ PEREZ WILLIAN ARLEY": ["WILLIAN PEREZ", "FRANCISCO ALONZO"],
     "NOEL CHAN": ["AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH", "FRANCISCO CONTRERAS"],
-    "LIAN": ["FRANCISCO ALONZO"],
     "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK"],
     "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA"],
 }
@@ -47,19 +45,18 @@ TXT_MEDIO_AMBIENTE = "PARA LLEVAR A CABO INSPECCIONES A CARGO DE LA SUBDIRECCION
 TXT_RAM_AMBIENTAL = "PARA LLEVAR A CABO ACTIVIDADES DE ESTERILIZACIONES DE PERROS Y GATOS, RECOLECCION DE MERMA DE FRUTAS Y VERDURAS EN SUPERMERCADOS Y REFORESTACIONES"
 
 MAPEO_SOLICITANTES = {
-    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
-    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
-    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 200.0},
-    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 100.0},
-    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 140.0},
-    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
-    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
-    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 140.0},
-    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
-    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 145.0},
-    22: {"solicita": "LIAN", "vehiculo": "MOTO SUSUKI", "placa": "91GWU7", "actividad": TXT_MEDIO_AMBIENTE, "base_sug": 150.0},
-    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO, "base_sug": 500.0},
-    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL, "base_sug": 1500.0},
+    12: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "85GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    13: {"solicita": "PEREZ MAZIN CARLOS EDUARDO", "vehiculo": "MOTO SUSUKI", "placa": "86GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    14: {"solicita": "DE LA CRUZ PEREZ WILLIAN ARLEY", "vehiculo": "MOTO SUSUKI", "placa": "86GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    15: {"solicita": "COB CHAVEZ NARCISO DEL JESUS", "vehiculo": "MOTO SUSUKI", "placa": "87GWU8", "actividad": TXT_DESARROLLO_URBANO},
+    16: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "88GWU7", "actividad": TXT_DESARROLLO_URBANO},
+    17: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "88GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    18: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    19: {"solicita": "NOEL CHAN", "vehiculo": "MOTO SUSUKI", "placa": "89GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    20: {"solicita": "NOEL CHAN", "vehiculo": "MOTO DINAMO", "placa": "90GWU7", "actividad": TXT_MEDIO_AMBIENTE},
+    21: {"solicita": "NOEL CHAN", "vehiculo": "MOTO HONDA", "placa": "90GWU8", "actividad": TXT_MEDIO_AMBIENTE},
+    23: {"solicita": "RENAN/HELDER", "vehiculo": "AUTOMOVIL JETTA", "placa": "DFT565C", "actividad": TXT_DESARROLLO_URBANO},
+    24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
 # --- USUARIO ÚNICO ADMINISTRADOR ---
