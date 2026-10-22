@@ -15,8 +15,8 @@ st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4300.00  # $4,100.00 Base + $350.00 Comodín
-BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $200.00 totales
+PRESUPUESTO_GLOBAL = 4300.00  # $3,950.00 Base + $350.00 Comodín
+BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $350.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -36,8 +36,8 @@ OPERADORES_POR_SOLICITANTE = {
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
     "DE LA CRUZ PEREZ WILLIAN ARLEY": ["WILLIAN PEREZ", "FRANCISCO ALONZO"],
     "NOEL CHAN": ["AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH", "FRANCISCO CONTRERAS"],
-    "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK"],
-    "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA"],
+    "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK", "OMAR OROPEZA"],
+    "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA", "AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH", "FRANCISCO CONTRERAS"],
 }
 
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
@@ -145,7 +145,7 @@ def limpiar_texto_operador(val):
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
         df_chk = st.session_state.df_lunes
-        if len(df_chk) == 13 and (df_chk[df_chk["row"] == 24]["Solicitante"].iloc[0] == "QUEVEDO"):
+        if len(df_chk) == 12 and (df_chk[df_chk["row"] == 24]["Solicitante"].iloc[0] == "QUEVEDO"):
             return st.session_state.df_lunes.copy(), st.session_state.df_jueves.copy()
 
     filas_lunes = []
@@ -444,7 +444,6 @@ def verificar_bloqueo_descarga(df_dia_edit, df_otro_dia, presupuestos_efectivos)
             )
     tot_global = df_dia_edit["Importe"].sum() + df_otro_dia["Importe"].sum()
     if tot_global > PRESUPUESTO_GLOBAL:
-        bloqueo_true = True
         bloqueado = True
         diff_g = tot_global - PRESUPUESTO_GLOBAL
         mensajes.append(
@@ -1045,38 +1044,26 @@ with tab_mi_carga:
     st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
     sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
     sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
-    presupuesto_lian_efectivo = presupuestos_actuales["LIAN"]
     
     if not sub_l_lian.empty:
         row_l_lian = sub_l_lian.iloc[0]
         row_j_lian = sub_j_lian.iloc[0]
         
         with st.container(border=True):
-            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`** &nbsp;|&nbsp; Presupuesto Autorizado: **${presupuesto_lian_efectivo:,.2f}**")
+            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`**")
             
             c_ml1, c_ml2 = st.columns(2)
             with c_ml1:
                 st.markdown("🗓️ **Carga del Lunes**")
                 op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
                 op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                
-                val_l_actual = float(row_l_lian["Importe"])
-                max_l = float(presupuesto_lian_efectivo)
-                val_l_seguro = max(0.0, min(val_l_actual, max_l))
-                
-                imp_l_sel = st.number_input("Monto Lunes ($)", value=val_l_seguro, step=50.0, min_value=0.0, max_value=max_l, key="ml_imp_l")
+                imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_l")
             
             with c_ml2:
                 st.markdown("🗓️ **Carga del Jueves**")
-                disponible_jueves_lian = max(0.0, presupuesto_lian_efectivo - imp_l_sel)
                 op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
                 op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                
-                val_j_actual = float(row_j_lian["Importe"])
-                max_j = float(disponible_jueves_lian)
-                val_j_seguro = max(0.0, min(val_j_actual, max_j))
-                
-                imp_j_sel = st.number_input("Monto Jueves ($)", value=val_j_seguro, step=50.0, min_value=0.0, max_value=max_j, key="ml_imp_j")
+                imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_j")
             
             if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
                 df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
@@ -1090,6 +1077,8 @@ with tab_mi_carga:
                 enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
                 st.success("✅ Tu carga fue registrada correctamente.")
                 st.rerun()
+    else:
+        st.info("No hay registro de vehículo personal asignado en la lista actual.")
 
 # 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
 with tab_auditoria:
@@ -1113,7 +1102,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_lunes_clean_v12"
+            key="aud_editor_lunes_clean_v13"
         )
         
         if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1137,7 +1126,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_jueves_clean_v12"
+            key="aud_editor_jueves_clean_v13"
         )
         
         if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
