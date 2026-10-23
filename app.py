@@ -1039,47 +1039,6 @@ with tab_jueves:
             disabled=bloqueo_j
         )
 
-# 4. MI CARGA (LIAN / FRANCISCO ALONZO)
-with tab_mi_carga:
-    st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
-    sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
-    sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
-    
-    if not sub_l_lian.empty:
-        row_l_lian = sub_l_lian.iloc[0]
-        row_j_lian = sub_j_lian.iloc[0]
-        
-        with st.container(border=True):
-            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`**")
-            
-            c_ml1, c_ml2 = st.columns(2)
-            with c_ml1:
-                st.markdown("🗓️ **Carga del Lunes**")
-                op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
-                op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_l")
-            
-            with c_ml2:
-                st.markdown("🗓️ **Carga del Jueves**")
-                op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
-                op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_j")
-            
-            if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
-                df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
-                df_mi_l["Operador"] = op_l_sel
-                df_mi_l["Importe"] = imp_l_sel
-                enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                
-                df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
-                df_mi_j["Operador"] = op_j_sel
-                df_mi_j["Importe"] = imp_j_sel
-                enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                st.success("✅ Tu carga fue registrada correctamente.")
-                st.rerun()
-    else:
-        st.info("No hay registro de vehículo personal asignado en la lista actual.")
-
 # 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
 with tab_auditoria:
     st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
