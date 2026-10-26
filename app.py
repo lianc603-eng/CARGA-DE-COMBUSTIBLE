@@ -13,7 +13,7 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# ESTILO CLAYMORFISMO CON FONDO BLANCO Y ACENTOS VERDE ESMERALDA
+# ESTILO CLAYMORFISMO CON FONDO BLANCO Y BOTONES ESMERALDA
 # ==========================================================
 st.markdown("""
 <style>
@@ -40,8 +40,8 @@ st.markdown("""
         margin-bottom: 20px !important;
     }
     
-    /* Botones estilo Clay Esmeralda vibrante */
-    .stButton > button {
+    /* Botones generales y botones de formularios (Eliminando tonos rojos) */
+    .stButton > button, div.stFormSubmitButton > button {
         background: linear-gradient(135deg, #00C875 0%, #00A86B 100%) !important;
         color: #FFFFFF !important;
         border: 2px solid rgba(255, 255, 255, 0.4) !important;
@@ -50,9 +50,10 @@ st.markdown("""
         transition: all 0.2s ease-in-out;
         font-weight: bold !important;
         padding: 0.6rem 1.2rem;
+        width: 100%;
     }
     
-    .stButton > button:hover {
+    .stButton > button:hover, div.stFormSubmitButton > button:hover {
         background: linear-gradient(135deg, #00B066 0%, #00955E 100%) !important;
         box-shadow: 0 4px 8px rgba(0, 168, 107, 0.35), inset 0 3px 6px rgba(0, 0, 0, 0.2) !important;
         transform: translateY(-2px);
@@ -93,8 +94,8 @@ st.markdown("""
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
-BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
+PRESUPUESTO_GLOBAL = 4300.00  # $3,950.00 Base + $350.00 Comodín
+BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $350.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -330,9 +331,6 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
     except Exception:
         return False
 
-# ==========================================
-# GENERADORES DE ARCHIVOS OFICIALES
-# ==========================================
 def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -611,11 +609,11 @@ with col_f1:
 with col_f2:
     f_prog = st.date_input("Programación para el día", value=FECHA_PROGRAMACION_DEFECTO)
 
-tab_saldos, tab_lunes, tab_jueves, tab_mi_carga, tab_auditoria, tab_mantenimiento = st.tabs([
+# Se eliminó la pestaña "Mi Carga (LIAN / Alonzo)"
+tab_saldos, tab_lunes, tab_jueves, tab_auditoria, tab_mantenimiento = st.tabs([
     "📊 Monitoreo y Asignación de Presupuestos",
     "📄 Formato y Carga LUNES",
     "📄 Formato y Carga JUEVES",
-    "🛵 Mi Carga (LIAN / Alonzo)",
     "✅ Auditoría y Cierre Semanal",
     "🛠️ Cierre de Viernes"
 ])
@@ -1114,48 +1112,7 @@ with tab_jueves:
             disabled=bloqueo_j
         )
 
-# 4. MI CARGA (LIAN / FRANCISCO ALONZO)
-with tab_mi_carga:
-    st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
-    sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
-    sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
-    
-    if not sub_l_lian.empty:
-        row_l_lian = sub_l_lian.iloc[0]
-        row_j_lian = sub_j_lian.iloc[0]
-        
-        with st.container(border=True):
-            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`**")
-            
-            c_ml1, c_ml2 = st.columns(2)
-            with c_ml1:
-                st.markdown("🗓️ **Carga del Lunes**")
-                op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
-                op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
-                imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_l")
-            
-            with c_ml2:
-                st.markdown("🗓️ **Carga del Jueves**")
-                op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
-                op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
-                imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_j")
-            
-            if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
-                df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
-                df_mi_l["Operador"] = op_l_sel
-                df_mi_l["Importe"] = imp_l_sel
-                enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                
-                df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
-                df_mi_j["Operador"] = op_j_sel
-                df_mi_j["Importe"] = imp_j_sel
-                enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
-                st.success("✅ Tu carga fue registrada correctamente.")
-                st.rerun()
-    else:
-        st.info("No hay registro de vehículo personal asignado en la lista actual.")
-
-# 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
+# 4. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
 with tab_auditoria:
     st.markdown("##### 🔍 Auditoría y Comprobación Real (Pestañas 'lunes' y 'jueves')")
     st.caption("Captura lo que realmente cargaron cada día para conciliar y archivar en 'historico':")
@@ -1177,7 +1134,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_lunes_clean_v13"
+            key="aud_editor_lunes_clean_v15"
         )
         
         if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1201,7 +1158,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_jueves_clean_v13"
+            key="aud_editor_jueves_clean_v15"
         )
         
         if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
@@ -1253,7 +1210,7 @@ with tab_auditoria:
             else:
                 st.error("Error al archivar.")
 
-# 6. CIERRE DE VIERNES
+# 5. CIERRE DE VIERNES
 with tab_mantenimiento:
     st.markdown("##### 🛠️ Mantenimiento y Cierre de Viernes")
     
