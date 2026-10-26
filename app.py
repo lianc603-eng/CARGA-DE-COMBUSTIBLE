@@ -13,58 +13,78 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# ESTILO CLAYMORFISMO & VERDE ESMERALDA (CSS)
+# ESTILO CLAYMORFISMO REAL & VERDE ESMERALDA (TEXTO EN NEGRITAS)
 # ==========================================================
 st.markdown("""
 <style>
-    /* Fondo general suave verdoso/grisáceo */
+    /* Fondo general de la aplicación */
     .stApp {
-        background-color: #E6F4ED;
-        color: #1A3C2A;
+        background-color: #E8F5EE;
+        color: #113822;
+        font-weight: bold !important;
     }
     
-    /* Contenedores y tarjetas con estilo Claymorfismo (bordes muy redondeados y doble sombra flotante) */
+    /* Forzar negritas en todo el texto */
+    p, span, label, div, h1, h2, h3, h4, h5, h6, .stMarkdown, .stMetricValue {
+        font-weight: bold !important;
+        color: #133D25 !important;
+    }
+    
+    /* Contenedores y tarjetas principales estilo Claymorfismo (Efecto Plastilina 3D) */
     div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {
-        background: #F0F9F4 !important;
-        border: none !important;
-        border-radius: 24px !important;
-        box-shadow: 12px 12px 24px #b8d4c3, -12px -12px 24px #ffffff, inset 2px 2px 4px rgba(255, 255, 255, 0.8) !important;
-        padding: 24px !important;
+        background: #FFFFFF !important;
+        border: 2px solid rgba(255, 255, 255, 0.9) !important;
+        border-radius: 28px !important;
+        box-shadow: 0 20px 40px rgba(0, 168, 107, 0.12), 0 6px 12px rgba(0, 0, 0, 0.05), inset 0 -4px 8px rgba(0, 0, 0, 0.03), inset 0 4px 8px rgba(255, 255, 255, 0.9) !important;
+        padding: 28px !important;
+        margin-bottom: 20px !important;
     }
     
-    /* Botones principales en Verde Esmeralda con relieve clay */
+    /* Botones estilo Clay Esmeralda */
     .stButton > button {
-        background: #00A86B !important;
+        background: linear-gradient(135deg, #00C875 0%, #00A86B 100%) !important;
         color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 16px !important;
-        box-shadow: 6px 6px 12px #007A4E, -6px -6px 12px #00D68A, inset 2px 2px 4px rgba(255, 255, 255, 0.4) !important;
+        border: 2px solid rgba(255, 255, 255, 0.4) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 10px 20px rgba(0, 168, 107, 0.35), inset 0 2px 4px rgba(255, 255, 255, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.1) !important;
         transition: all 0.2s ease-in-out;
-        font-weight: bold;
+        font-weight: bold !important;
+        padding: 0.6rem 1.2rem;
     }
     
     .stButton > button:hover {
-        background: #008F5B !important;
-        box-shadow: inset 4px 4px 8px #005E3C, inset -4px -4px 8px #00C07A !important;
+        background: linear-gradient(135deg, #00B066 0%, #00955E 100%) !important;
+        box-shadow: 0 6px 12px rgba(0, 168, 107, 0.4), inset 0 3px 6px rgba(0, 0, 0, 0.2) !important;
+        transform: translateY(-2px);
     }
     
-    /* Campos de entrada de texto y números con efecto acolchado */
-    input {
-        background-color: #E2F2EB !important;
-        border: 2px solid #C2E2D3 !important;
-        border-radius: 14px !important;
-        box-shadow: inset 4px 4px 8px #bed4c9, inset -4px -4px 8px #ffffff !important;
-        color: #1A3C2A !important;
-        font-weight: 500;
+    /* Campos de entrada tipo píldora de arcilla */
+    input, select {
+        background-color: #F3FBF7 !important;
+        border: 2px solid #D1EFE2 !important;
+        border-radius: 16px !important;
+        box-shadow: inset 3px 3px 6px rgba(0, 168, 107, 0.06), inset -3px -3px 6px #FFFFFF !important;
+        color: #113822 !important;
+        font-weight: bold !important;
+        padding: 10px 14px !important;
     }
     
-    /* Tarjetas de métricas tipo arcilla esmeralda */
+    /* Tarjetas de Métricas Clay */
     div[data-testid="stMetric"] {
-        background: #F0F9F4;
-        padding: 18px;
-        border-radius: 20px;
-        box-shadow: 8px 8px 16px #c4decf, -8px -8px 16px #ffffff;
-        border-left: 6px solid #00A86B;
+        background: #FFFFFF;
+        padding: 20px;
+        border-radius: 24px;
+        box-shadow: 0 12px 24px rgba(0, 168, 107, 0.08), 0 4px 8px rgba(0, 0, 0, 0.03), inset 0 2px 4px rgba(255, 255, 255, 0.9);
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        border-left: 8px solid #00A86B;
+    }
+    
+    /* Expander estilo clay */
+    .streamlit-expanderHeader {
+        background: #FFFFFF !important;
+        border-radius: 16px !important;
+        box-shadow: 0 8px 16px rgba(0, 168, 107, 0.06), inset 0 2px 4px rgba(255, 255, 255, 0.8) !important;
+        font-weight: bold !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -309,6 +329,9 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
     except Exception:
         return False
 
+# ==========================================
+# GENERADORES DE ARCHIVOS OFICIALES
+# ==========================================
 def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -1153,7 +1176,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_lunes_clean_v13"
+            key="aud_editor_lunes_clean_v14"
         )
         
         if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1177,7 +1200,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_jueves_clean_v13"
+            key="aud_editor_jueves_clean_v14"
         )
         
         if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
