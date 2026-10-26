@@ -92,8 +92,8 @@ st.markdown("""
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
-BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
+PRESUPUESTO_GLOBAL = 4600.00  # $3,950.00 Base + $650.00 Comodín
+BOLSA_COMODIN_TOTAL = 650.00  # Ajustado a $650.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
