@@ -40,7 +40,7 @@ st.markdown("""
         margin-bottom: 20px !important;
     }
     
-    /* Botones generales y botones de formularios (Eliminando tonos rojos) */
+    /* Botones generales y botones de formularios en verde esmeralda */
     .stButton > button, div.stFormSubmitButton > button {
         background: linear-gradient(135deg, #00C875 0%, #00A86B 100%) !important;
         color: #FFFFFF !important;
@@ -59,15 +59,20 @@ st.markdown("""
         transform: translateY(-2px);
     }
     
-    /* Campos de entrada tipo píldora de arcilla suave */
-    input, select {
+    /* Corrección estricta para campos de texto, números y selectores de Streamlit */
+    input, select, div[data-baseweb="select"] > div {
         background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
         border: 2px solid #C8EBDC !important;
         border-radius: 16px !important;
-        box-shadow: inset 2px 2px 5px rgba(0, 168, 107, 0.05), inset -2px -2px 5px #FFFFFF !important;
         color: #113822 !important;
         font-weight: bold !important;
-        padding: 10px 14px !important;
+    }
+    
+    /* Forzar texto e íconos visibles dentro de los selectores desplegables */
+    div[data-baseweb="select"] span, div[data-baseweb="select"] div {
+        color: #113822 !important;
+        font-weight: bold !important;
     }
     
     /* Tarjetas de Métricas Clay */
@@ -94,8 +99,8 @@ st.markdown("""
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4300.00  # $3,950.00 Base + $350.00 Comodín
-BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $350.00 totales
+PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
+BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -609,7 +614,7 @@ with col_f1:
 with col_f2:
     f_prog = st.date_input("Programación para el día", value=FECHA_PROGRAMACION_DEFECTO)
 
-# Se eliminó la pestaña "Mi Carga (LIAN / Alonzo)"
+# Pestaña "Mi Carga" eliminada definitivamente
 tab_saldos, tab_lunes, tab_jueves, tab_auditoria, tab_mantenimiento = st.tabs([
     "📊 Monitoreo y Asignación de Presupuestos",
     "📄 Formato y Carga LUNES",
@@ -1063,7 +1068,7 @@ with tab_jueves:
         c_delj1, c_delj2 = st.columns([3, 1])
         with c_delj1:
             veh_borrar_j = st.selectbox(
-                "Selecciona el vehículo cuya carga deseas eliminar:",
+                "Selecciona el vehículo cuja carga deseas eliminar:",
                 options=[f"Fila {r} - {info['solicita']} ({info['vehiculo']} {info['placa']})" for r, info in MAPEO_SOLICITANTES.items()],
                 key="sel_del_jueves"
             )
@@ -1134,7 +1139,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Lunes ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_lunes_clean_v15"
+            key="aud_editor_lunes_clean_v16"
         )
         
         if st.button("💾 Guardar Real LUNES", type="secondary", use_container_width=True):
@@ -1158,7 +1163,7 @@ with tab_auditoria:
                 "Real": st.column_config.NumberColumn("Real Jueves ($)", min_value=0.0, step=50.0, format="$%.2f"),
             },
             hide_index=True,
-            key="aud_editor_jueves_clean_v15"
+            key="aud_editor_jueves_clean_v16"
         )
         
         if st.button("💾 Guardar Real JUEVES", type="secondary", use_container_width=True):
