@@ -13,45 +13,58 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
-# ESTILO NEUMORFISMO (CSS)
+# ESTILO CLAYMORFISMO & VERDE ESMERALDA (CSS)
 # ==========================================================
 st.markdown("""
 <style>
+    /* Fondo general suave verdoso/grisáceo */
     .stApp {
-        background-color: #E4EBF5;
-        color: #333333;
+        background-color: #E6F4ED;
+        color: #1A3C2A;
     }
+    
+    /* Contenedores y tarjetas con estilo Claymorfismo (bordes muy redondeados y doble sombra flotante) */
     div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {
-        background: #E4EBF5 !important;
+        background: #F0F9F4 !important;
+        border: none !important;
+        border-radius: 24px !important;
+        box-shadow: 12px 12px 24px #b8d4c3, -12px -12px 24px #ffffff, inset 2px 2px 4px rgba(255, 255, 255, 0.8) !important;
+        padding: 24px !important;
+    }
+    
+    /* Botones principales en Verde Esmeralda con relieve clay */
+    .stButton > button {
+        background: #00A86B !important;
+        color: #FFFFFF !important;
         border: none !important;
         border-radius: 16px !important;
-        box-shadow: 8px 8px 16px #c5d9e8, -8px -8px 16px #ffffff !important;
-        padding: 20px !important;
-    }
-    .stButton > button {
-        background: #E4EBF5 !important;
-        color: #333333 !important;
-        border: none !important;
-        border-radius: 12px !important;
-        box-shadow: 5px 5px 10px #c5d9e8, -5px -5px 10px #ffffff !important;
+        box-shadow: 6px 6px 12px #007A4E, -6px -6px 12px #00D68A, inset 2px 2px 4px rgba(255, 255, 255, 0.4) !important;
         transition: all 0.2s ease-in-out;
         font-weight: bold;
     }
+    
     .stButton > button:hover {
-        box-shadow: inset 3px 3px 6px #c5d9e8, inset -3px -3px 6px #ffffff !important;
+        background: #008F5B !important;
+        box-shadow: inset 4px 4px 8px #005E3C, inset -4px -4px 8px #00C07A !important;
     }
+    
+    /* Campos de entrada de texto y números con efecto acolchado */
     input {
-        background-color: #E4EBF5 !important;
-        border: none !important;
-        border-radius: 10px !important;
-        box-shadow: inset 3px 3px 6px #c5d9e8, inset -3px -3px 6px #ffffff !important;
-        color: #333333 !important;
+        background-color: #E2F2EB !important;
+        border: 2px solid #C2E2D3 !important;
+        border-radius: 14px !important;
+        box-shadow: inset 4px 4px 8px #bed4c9, inset -4px -4px 8px #ffffff !important;
+        color: #1A3C2A !important;
+        font-weight: 500;
     }
+    
+    /* Tarjetas de métricas tipo arcilla esmeralda */
     div[data-testid="stMetric"] {
-        background: #E4EBF5;
-        padding: 15px;
-        border-radius: 14px;
-        box-shadow: 6px 6px 12px #c5d9e8, -6px -6px 12px #ffffff;
+        background: #F0F9F4;
+        padding: 18px;
+        border-radius: 20px;
+        box-shadow: 8px 8px 16px #c4decf, -8px -8px 16px #ffffff;
+        border-left: 6px solid #00A86B;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -59,8 +72,8 @@ st.markdown("""
 # ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4600.00
-BOLSA_COMODIN_TOTAL = 1000.00
+PRESUPUESTO_GLOBAL = 4600.00  # $3,600.00 Base + $1,000.00 Comodín
+BOLSA_COMODIN_TOTAL = 1000.00  # Ajustado a $1,000.00 totales
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -103,6 +116,7 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
+# --- USUARIO ÚNICO ADMINISTRADOR ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123"
 }
@@ -117,6 +131,7 @@ def obtener_nombre_archivo_oficial(prefijo, turno, f_prog, extension):
     fecha_str = f_prog.strftime("%d_%m_%Y")
     return f"{prefijo}_{dia_nombre}_{fecha_str}.{extension}"
 
+# --- PERSISTENCIA LOCAL Y EN MEMORIA ---
 def leer_config():
     if "config_memoria" in st.session_state:
         return st.session_state.config_memoria
@@ -181,6 +196,7 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
+# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
         df_chk = st.session_state.df_lunes
