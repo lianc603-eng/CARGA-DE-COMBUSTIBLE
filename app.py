@@ -13,10 +13,54 @@ from fpdf import FPDF
 st.set_page_config(page_title="Control de Combustible", layout="wide", page_icon="⛽")
 
 # ==========================================================
+# ESTILO NEUMORFISMO (CSS)
+# ==========================================================
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #E4EBF5;
+        color: #333333;
+    }
+    div[data-testid="stVerticalBlock"] > div[style*="border: 1px solid"] {
+        background: #E4EBF5 !important;
+        border: none !important;
+        border-radius: 16px !important;
+        box-shadow: 8px 8px 16px #c5d9e8, -8px -8px 16px #ffffff !important;
+        padding: 20px !important;
+    }
+    .stButton > button {
+        background: #E4EBF5 !important;
+        color: #333333 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        box-shadow: 5px 5px 10px #c5d9e8, -5px -5px 10px #ffffff !important;
+        transition: all 0.2s ease-in-out;
+        font-weight: bold;
+    }
+    .stButton > button:hover {
+        box-shadow: inset 3px 3px 6px #c5d9e8, inset -3px -3px 6px #ffffff !important;
+    }
+    input {
+        background-color: #E4EBF5 !important;
+        border: none !important;
+        border-radius: 10px !important;
+        box-shadow: inset 3px 3px 6px #c5d9e8, inset -3px -3px 6px #ffffff !important;
+        color: #333333 !important;
+    }
+    div[data-testid="stMetric"] {
+        background: #E4EBF5;
+        padding: 15px;
+        border-radius: 14px;
+        box-shadow: 6px 6px 12px #c5d9e8, -6px -6px 12px #ffffff;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================================
 # CONFIGURACIONES GENERALES
 # ==========================================================
-PRESUPUESTO_GLOBAL = 4300.00  # $3,950.00 Base + $350.00 Comodín
-BOLSA_COMODIN_TOTAL = 350.00  # Ajustado a $350.00 totales
+PRESUPUESTO_GLOBAL = 4600.00
+BOLSA_COMODIN_TOTAL = 1000.00
 ZONA_HORARIA = pytz.timezone("America/Merida")
 
 CONFIG_FILE = "config_sistema.json"
@@ -36,8 +80,8 @@ OPERADORES_POR_SOLICITANTE = {
     "PEREZ MAZIN CARLOS EDUARDO": ["EDUARDO PEREZ"],
     "DE LA CRUZ PEREZ WILLIAN ARLEY": ["WILLIAN PEREZ", "FRANCISCO ALONZO"],
     "NOEL CHAN": ["AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH", "FRANCISCO CONTRERAS"],
-    "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK", "OMAR OROPEZA"],
-    "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA", "AXEL SARAVIA", "NOEL CHAN", "ROMAN DZUL", "ROGER DUARTE", "LUIS CAHUICH", "FRANCISCO CONTRERAS"],
+    "QUEVEDO": ["FARID PAVON", "WALDEMAR SAGUNDO", "JORGE MELIK"],
+    "RENAN/HELDER": ["HELDER PACHECO", "RENAN CETINA"],
 }
 
 TXT_DESARROLLO_URBANO = "LLEVAR A CABO ACTIVIDADES DE INSPECCIONES, VERIFICACIONES Y SUPERVICIONES DE OBRAS Y OBSTRUCCIONES A LA VIA PÚBLICA CORRESPONDIENTES A LA SUBDIRECCION DE DESARROLLO URBANO"
@@ -59,7 +103,6 @@ MAPEO_SOLICITANTES = {
     24: {"solicita": "QUEVEDO", "vehiculo": "CAMIONETA RAM 701", "placa": "CN2633B", "actividad": TXT_RAM_AMBIENTAL},
 }
 
-# --- USUARIO ÚNICO ADMINISTRADOR ---
 PASSWORDS_DEFAULT = {
     "LIAN": "admin123"
 }
@@ -74,7 +117,6 @@ def obtener_nombre_archivo_oficial(prefijo, turno, f_prog, extension):
     fecha_str = f_prog.strftime("%d_%m_%Y")
     return f"{prefijo}_{dia_nombre}_{fecha_str}.{extension}"
 
-# --- PERSISTENCIA LOCAL Y EN MEMORIA ---
 def leer_config():
     if "config_memoria" in st.session_state:
         return st.session_state.config_memoria
@@ -119,12 +161,10 @@ def calcular_presupuesto_efectivo():
     
     presupuestos = PRESUPUESTO_BASE_POR_SOLICITANTE.copy()
     
-    # 1. Asignar Comodín registrado
     for solicitante, extra in asig_comodin.items():
         if solicitante in presupuestos:
             presupuestos[solicitante] += float(extra)
             
-    # 2. Aplicar transferencias registradas entre áreas
     for t in transferencias:
         de_quien = t.get("origen")
         a_quien = t.get("destino")
@@ -141,7 +181,6 @@ def limpiar_texto_operador(val):
     s = str(val).strip()
     return "" if s.lower() in ["none", "null", "nan", ""] else s
 
-# --- CONSULTA Y ENVÍO A GOOGLE SHEETS ---
 def obtener_datos_dos_hojas(forzar=False):
     if "df_lunes" in st.session_state and "df_jueves" in st.session_state and not forzar:
         df_chk = st.session_state.df_lunes
@@ -254,9 +293,6 @@ def enviar_datos_hoja(df_a_enviar, hoja="lunes", tipo="solicitado", f_elab=None,
     except Exception:
         return False
 
-# ==========================================
-# GENERADORES DE ARCHIVOS OFICIALES
-# ==========================================
 def generar_excel_oficial_formato(df_datos, dia_nombre, f_elab, f_prog):
     output = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -620,7 +656,6 @@ with tab_saldos:
     st.divider()
     st.markdown("##### 🔀 Asignar Comodín y Transferir Presupuesto entre Solicitantes")
     
-    # Cálculo estricto de Comodín Disponible ($1,000.00 Totales)
     asig_comodin_dict = cfg_actual.get("asignacion_comodin", {})
     total_comodin_asignado = sum(asig_comodin_dict.values())
     comodin_restante_bolsa = max(0.0, BOLSA_COMODIN_TOTAL - total_comodin_asignado)
@@ -1038,6 +1073,47 @@ with tab_jueves:
             use_container_width=True,
             disabled=bloqueo_j
         )
+
+# 4. MI CARGA (LIAN / FRANCISCO ALONZO)
+with tab_mi_carga:
+    st.markdown("##### 🛵 Mi Carga (LIAN / Francisco Alonzo)")
+    sub_l_lian = df_lunes[df_lunes["Solicitante"] == "LIAN"]
+    sub_j_lian = df_jueves[df_jueves["Solicitante"] == "LIAN"]
+    
+    if not sub_l_lian.empty:
+        row_l_lian = sub_l_lian.iloc[0]
+        row_j_lian = sub_j_lian.iloc[0]
+        
+        with st.container(border=True):
+            st.markdown(f"🛵 **{row_l_lian['Vehículo']}** &nbsp;|&nbsp; Placa: **`{row_l_lian['Placa']}`**")
+            
+            c_ml1, c_ml2 = st.columns(2)
+            with c_ml1:
+                st.markdown("🗓️ **Carga del Lunes**")
+                op_l_guardado = limpiar_texto_operador(row_l_lian["Operador"])
+                op_l_sel = st.selectbox("Operador Lunes", ["", "FRANCISCO ALONZO"], index=1 if op_l_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_l")
+                imp_l_sel = st.number_input("Monto Lunes ($)", value=float(row_l_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_l")
+            
+            with c_ml2:
+                st.markdown("🗓️ **Carga del Jueves**")
+                op_j_guardado = limpiar_texto_operador(row_j_lian["Operador"])
+                op_j_sel = st.selectbox("Operador Jueves", ["", "FRANCISCO ALONZO"], index=1 if op_j_guardado == "FRANCISCO ALONZO" else 0, key="ml_op_j")
+                imp_j_sel = st.number_input("Monto Jueves ($)", value=float(row_j_lian["Importe"]), step=50.0, min_value=0.0, key="ml_imp_j")
+            
+            if st.button("💾 Guardar Mi Carga (Lunes y Jueves)", type="primary", use_container_width=True):
+                df_mi_l = df_lunes[df_lunes["Solicitante"] == "LIAN"].copy()
+                df_mi_l["Operador"] = op_l_sel
+                df_mi_l["Importe"] = imp_l_sel
+                enviar_datos_hoja(df_mi_l, hoja="lunes", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                
+                df_mi_j = df_jueves[df_jueves["Solicitante"] == "LIAN"].copy()
+                df_mi_j["Operador"] = op_j_sel
+                df_mi_j["Importe"] = imp_j_sel
+                enviar_datos_hoja(df_mi_j, hoja="jueves", tipo="solicitado", f_elab=f_elab, f_prog=f_prog)
+                st.success("✅ Tu carga fue registrada correctamente.")
+                st.rerun()
+    else:
+        st.info("No hay registro de vehículo personal asignado en la lista actual.")
 
 # 5. AUDITORÍA Y COMPROBACIÓN REAL (COLUMNA BASE TOTALMENTE ELIMINADA)
 with tab_auditoria:
